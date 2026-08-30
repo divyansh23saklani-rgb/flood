@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Disaster Simulation Map</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    
+    <style>
+        html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; background: #0b192c; }
+        #map { height: 100vh; width: 100vw; background: #0f172a; }
+        .leaflet-control-attribution { display: none !important; }
+        .leaflet-control-zoom { position: absolute; bottom: 85px !important; right: 15px !important; z-index: 1000; }
+        .leaflet-control-zoom a { background: #ffffff; color: #1e293b; border: none; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); font-size: 20px; font-weight: bold; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+        .rain-canvas { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 450; }
+        
+        .incident-badge { 
+            border-radius: 50%; 
+            border: 2px solid white; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-size: 13px; 
+            font-weight: bold; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.35); 
+            color: white; 
+            width: 32px; 
+            height: 32px;
+            animation: pulse-badge 2s infinite ease-in-out;
+        }
+        @keyframes pulse-badge {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .flood-high, .road-high { background-color: #dc2626; box-shadow: 0 0 12px #dc2626; }
+        .flood-medium, .road-medium { background-color: #ea580c; box-shadow: 0 0 10px #ea580c; }
+        .flood-low, .road-low { background-color: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+        .flood-distress { background-color: #9333ea; box-shadow: 0 0 14px #9333ea; }
+        
+        .service-badge { 
+            width: 30px; 
+            height: 30px; 
+            border-radius: 8px; 
+            border: 2px solid white; 
+            box-shadow: 0 3px 8px rgba(0,0,0,0.3); 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: white;
+        }
+        .hospital { background-color: #16a34a; }
+        .police { background-color: #0284c7; }
+        .shelter { background-color: #d97706; }
+        
+        .user-loc-badge {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #2563eb;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.35);
+        }
+        
+        .leaflet-popup-content-wrapper {
+            border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            background: #ffffff;
+            color: #0f172a;
+        }
+        .leaflet-popup-content { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            line-height: 1.4; 
+            margin: 12px; 
+        }
+        .popup-title { font-weight: 800; margin-bottom: 6px; font-size: 15px; color: #0f172a; }
+        .popup-row { margin: 4px 0; font-size: 12px; color: #475569; }
+        .directions-btn { 
+            background: #0284c7; 
+            color: white !important; 
+            padding: 8px 14px; 
+            border-radius: 8px; 
+            text-decoration: none; 
+            font-size: 12px; 
+            font-weight: 700; 
+            display: inline-block; 
+            margin-top: 8px; 
+            box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);
+        }
+        .directions-btn:active { background: #0369a1; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script>
+        const map = L.map('map', {
+            zoomControl: true,
+            attributionControl: false
+        }).setView([30.7268, 78.4350], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: ''
+        }).addTo(map);
+
+        const incidentsLayer = L.layerGroup().addTo(map);
+        const servicesLayer = L.layerGroup().addTo(map);
+        const affectedAreaLayer = L.layerGroup().addTo(map);
+        const userLayer = L.layerGroup().addTo(map);
+
+        let currentZoneCircle = null;
+        let reportMode = false;
+
+        // Rain animation
+        let rainCanvas, rainCtx, rainDrops = [], isRaining = false, animationId;
+
+        function initRainCanvas() {
+            if (rainCanvas) return;
+            rainCanvas = document.createElement('canvas');
+            rainCanvas.className = 'rain-canvas';
+            rainCtx = rainCanvas.getContext('2d');
+            const mapContainer = map.getContainer();
+            mapContainer.appendChild(rainCanvas);
+            resizeCanvas();
+            map.on('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            if (!rainCanvas) return;
+            const size = map.getSize();
+            rainCanvas.width = size.x;
+            rainCanvas.height = size.y;
+            rainCanvas.style.width = size.x + 'px';
+            rainCanvas.style.height = size.y + 'px';
+        }
+
+        function createRainDrops(intensity) {
+            rainDrops = [];
+            const size = map.getSize();
+            const numDrops = Math.min(400, Math.floor((intensity / 100) * 300) + 100);
+            
+            for (let i = 0; i < numDrops; i++) {
+                rainDrops.push({
+                    x: Math.random() * size.x,
+                    y: Math.random() * size.y,
+                    length: 12 + Math.random() * 25,
+                    speed: 4 + Math.random() * 6 + (intensity / 20),
+                    opacity: 0.35 + Math.random() * 0.45
+                });
+            }
+        }
+
+        function animateRain() {
+            if (!isRaining || !rainCanvas || !rainCtx) return;
+            
+            const size = map.getSize();
+            rainCtx.clearRect(0, 0, size.x, size.y);
+            
+            rainDrops.forEach(drop => {
+                rainCtx.beginPath();
+                rainCtx.strokeStyle = `rgba(125, 175, 255, ${drop.opacity})`;
+                rainCtx.lineWidth = 1.6;
+                rainCtx.moveTo(drop.x, drop.y);
+                rainCtx.lineTo(drop.x - 2, drop.y + drop.length);
+                rainCtx.stroke();
+                
+                drop.y += drop.speed;
+                drop.x -= 1.2;
+                
+                if (drop.y > size.y + 30) {
+                    drop.y = -30;
+                    drop.x = Math.random() * (size.x + 150);
+                }
+                if (drop.x < -30) {
+                    drop.x = size.x + 30;
+                }
+            });
+            
+            animationId = requestAnimationFrame(animateRain);
+        }
+
+        function startRain(intensity) {
+            if (isRaining) stopRain();
+            initRainCanvas();
+            createRainDrops(intensity);
+            isRaining = true;
+            animateRain();
+        }
+
+        function stopRain() {
+            isRaining = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            if (rainCanvas && rainCtx) {
+                rainCtx.clearRect(0, 0, rainCanvas.width, rainCanvas.height);
+            }
+        }
+
+        function notifyNative(event, payload) {
+            if (window.AndroidBridge && window.AndroidBridge.postMessage) {
+                window.AndroidBridge.postMessage(JSON.stringify({ type: event, payload: payload }));
+            }
+        }
+
+        function createIncidentMarker(incident) {
+            let emoji = '⚠️';
+            let bgClass = 'flood-medium';
+
+            if (incident.type === 'flood') {
+                emoji = '🌊';
+                bgClass = 'flood-high';
+            } else if (incident.type === 'landslide') {
+                emoji = '⛰️';
+                bgClass = 'flood-high';
+            } else if (incident.type === 'tree') {
+                emoji = '🌳';
+                bgClass = 'flood-low';
+            } else if (incident.type === 'road' || incident.type === 'blocked') {
+                emoji = '🚧';
+                bgClass = 'road-medium';
+            } else if (incident.type === 'distress') {
+                emoji = '🆘';
+                bgClass = 'flood-distress';
+            } else if (incident.type === 'yellow') {
+                emoji = '⚠️';
+                bgClass = 'flood-low';
+            }
+
+            const iconHtml = `<div class="incident-badge ${bgClass}">${emoji}</div>`;
+            const customIcon = L.divIcon({
+                html: iconHtml,
+                className: 'custom-incident-icon',
+                iconSize: [32, 32],
+                iconAnchor: [16, 16],
+                popupAnchor: [0, -16]
+            });
+
+            const marker = L.marker([incident.lat, incident.lng], { icon: customIcon });
+            const timeStr = incident.createdAt ? new Date(incident.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (incident.time ? new Date(incident.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent');
+
+            const popupContent = `
+                <div class="popup-title">${emoji} ${incident.type.toUpperCase()}</div>
+                <div class="popup-row"><strong>Reported:</strong> ${timeStr}</div>
+                ${incident.note ? `<div class="popup-row"><strong>Note:</strong> ${incident.note}</div>` : ''}
+                <a href="#" class="directions-btn" onclick="sendDirections(${incident.lat}, ${incident.lng}); return false;">📍 Navigate to Location</a>
+            `;
+
+            marker.bindPopup(popupContent);
+            return marker;
+        }
+
+        function createServiceMarker(service) {
+            let emoji = '🏥';
+            let sType = service.type || 'hospital';
+            if (sType === 'hospital') emoji = '🏥';
+            else if (sType === 'police') emoji = '👮';
+            else if (sType === 'shelter' || sType === 'relief') emoji = '🏕️';
+
+            const iconHtml = `<div class="service-badge ${sType}">${emoji}</div>`;
+            const customIcon = L.divIcon({
+                html: iconHtml,
+                className: 'custom-service-icon',
+                iconSize: [30, 30],
+                iconAnchor: [15, 15],
+                popupAnchor: [0, -15]
+            });
+
+            const marker = L.marker([service.lat, service.lng], { icon: customIcon });
+            const popupContent = `
+                <div class="popup-title">${emoji} ${service.name}</div>
+                <div class="popup-row"><strong>Type:</strong> ${sType.toUpperCase()}</div>
+                ${service.address ? `<div class="popup-row"><strong>Address:</strong> ${service.address}</div>` : ''}
+                <div class="popup-row"><strong>Status:</strong> Available 24/7</div>
+                <a href="#" class="directions-btn" onclick="sendDirections(${service.lat}, ${service.lng}); return false;">🚗 Navigate Here</a>
+            `;
+
+            marker.bindPopup(popupContent);
+            return marker;
+        }
+
+        function drawAffectedArea(coords, radiusMeters, riskColor) {
+            affectedAreaLayer.clearLayers();
+            currentZoneCircle = null;
+
+            if (!coords || !radiusMeters) return;
+
+            let color = '#16a34a';
+            let fillColor = '#16a34a';
+
+            if (riskColor === 'red') {
+                color = '#dc2626';
+                fillColor = '#dc2626';
+            } else if (riskColor === 'orange' || riskColor === 'yellow') {
+                color = '#ea580c';
+                fillColor = '#ea580c';
+            }
+
+            const circle = L.circle([coords.lat, coords.lng], {
+                color: color,
+                fillColor: fillColor,
+                fillOpacity: 0.16,
+                radius: radiusMeters,
+                weight: 3,
+                dashArray: '8, 6',
+                interactive: false
+            });
+
+            circle.addTo(affectedAreaLayer);
+            currentZoneCircle = circle;
+        }
+
+        function updateUserLocation(lat, lng) {
+            userLayer.clearLayers();
+            const iconHtml = `<div class="user-loc-badge"></div>`;
+            const customIcon = L.divIcon({
+                html: iconHtml,
+                className: 'custom-user-icon',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+                popupAnchor: [0, -10]
+            });
+
+            const marker = L.marker([lat, lng], { icon: customIcon });
+            marker.bindPopup("<strong>Your Location</strong>");
+            marker.addTo(userLayer);
+        }
+
+        // JS Interface for Android WebView updates
+        window.updateMapData = function(jsonString) {
+            try {
+                const data = typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
+                
+                if (data.center) {
+                    map.setView([data.center.lat, data.center.lng], data.zoom || map.getZoom());
+                    updateUserLocation(data.center.lat, data.center.lng);
+                }
+
+                if (data.reportMode !== undefined) {
+                    reportMode = data.reportMode;
+                }
+
+                if (data.showIncidents !== false) {
+                    incidentsLayer.clearLayers();
+                    if (data.incidents && data.incidents.length > 0) {
+                        data.incidents.forEach(inc => {
+                            const marker = createIncidentMarker(inc);
+                            marker.addTo(incidentsLayer);
+                        });
+                    }
+                } else {
+                    incidentsLayer.clearLayers();
+                }
+
+                if (data.showEmergency !== false) {
+                    servicesLayer.clearLayers();
+                    if (data.emergencyServices && data.emergencyServices.length > 0) {
+                        data.emergencyServices.forEach(srv => {
+                            const marker = createServiceMarker(srv);
+                            marker.addTo(servicesLayer);
+                        });
+                    }
+                } else {
+                    servicesLayer.clearLayers();
+                }
+
+                if (data.center && data.radiusMeters) {
+                    drawAffectedArea(data.center, data.radiusMeters, data.riskColor || 'green');
+                }
+
+                if (data.isSimulatingRain && data.rainfallIntensity > 0) {
+                    startRain(data.rainfallIntensity);
+                } else {
+                    stopRain();
+                }
+
+            } catch (err) {
+                console.error("Error updating map data:", err);
+            }
+        };
+
+        map.on('click', function(e) {
+            notifyNative('mapPress', {
+                lat: parseFloat(e.latlng.lat.toFixed(6)),
+                lng: parseFloat(e.latlng.lng.toFixed(6))
+            });
+        });
+
+        window.sendDirections = function(lat, lng) {
+            notifyNative('directions', {
+                lat: lat,
+                lng: lng
+            });
+        };
+
+        window.panTo = function(lat, lng, zoom) {
+            map.flyTo([lat, lng], zoom || 15, { duration: 1 });
+        };
+    </script>
+</body>
+</html>
