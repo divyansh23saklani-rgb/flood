@@ -5,16 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Disaster Simulation Map</title>
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Leaflet CSS with multi-CDN fallback -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" />
     
     <style>
-        html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; background: #0b192c; }
+        html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; background: #0f172a; }
         #map { height: 100vh; width: 100vw; background: #0f172a; }
         .leaflet-control-attribution { display: none !important; }
         .leaflet-control-zoom { position: absolute; bottom: 85px !important; right: 15px !important; z-index: 1000; }
         .leaflet-control-zoom a { background: #ffffff; color: #1e293b; border: none; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); font-size: 20px; font-weight: bold; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
         .rain-canvas { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 450; }
+        
+        #loading-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            color: white;
+            text-align: center;
+            font-size: 14px;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+        .spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-radius: 50%;
+            border-top-color: #38bdf8;
+            animation: spin 0.8s ease-in-out infinite;
+            margin: 0 auto 10px auto;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
         
         .incident-badge { 
             border-radius: 50%; 
@@ -95,32 +122,315 @@
     </style>
 </head>
 <body>
+    <div id="loading-indicator">
+        <div class="spinner"></div>
+        <div>Loading Map Data...</div>
+    </div>
+    
     <div id="map"></div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
-            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Dynamic Leaflet Script Loader with multi-CDN fallback -->
+    <script>
+        function loadLeaflet(onSuccess) {
+            if (window.L) { onSuccess(); return; }
+            const cdns = [
+                'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+                'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+                'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js'
+            ];
+            let index = 0;
+            let loaded = false;
+
+            // Failsafe timeout: If network takes more than 2.5s to fetch Leaflet, immediately start offline vector canvas map
+            setTimeout(() => {
+                if (!loaded && !window.L) {
+                    console.log("Leaflet CDN load delayed/blocked. Launching instant native vector map.");
+                    initFallbackMap();
+                }
+            }, 2500);
+
+            function tryNext() {
+                if (index >= cdns.length) {
+                    console.error("All CDNs failed, starting native vector map");
+                    initFallbackMap();
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = cdns[index++];
+                script.onload = () => {
+                    loaded = true;
+                    onSuccess();
+                };
+                script.onerror = () => { tryNext(); };
+                document.head.appendChild(script);
+            }
+            tryNext();
+        }
+    </script>
 
     <script>
-        const map = L.map('map', {
-            zoomControl: true,
-            attributionControl: false
-        }).setView([30.7268, 78.4350], 13);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: ''
-        }).addTo(map);
-
-        const incidentsLayer = L.layerGroup().addTo(map);
-        const servicesLayer = L.layerGroup().addTo(map);
-        const affectedAreaLayer = L.layerGroup().addTo(map);
-        const userLayer = L.layerGroup().addTo(map);
-
+        let map;
+        let incidentsLayer;
+        let servicesLayer;
+        let affectedAreaLayer;
+        let userLayer;
         let currentZoneCircle = null;
         let reportMode = false;
+        let pendingData = null;
 
         // Rain animation
         let rainCanvas, rainCtx, rainDrops = [], isRaining = false, animationId;
+
+        function initMap() {
+            try {
+                if (typeof L === 'undefined') {
+                    initFallbackMap();
+                    return;
+                }
+
+                map = L.map('map', {
+                    zoomControl: true,
+                    attributionControl: false,
+                    fadeAnimation: true
+                }).setView([30.7268, 78.4350], 13);
+
+                // High reliability tile layer with automatic failover to multiple CDNs
+                const tileUrlPrimary = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+                
+                const mainTileLayer = L.tileLayer(tileUrlPrimary, {
+                    maxZoom: 19,
+                    attribution: ''
+                });
+
+                mainTileLayer.on('tileerror', function() {
+                    console.log("Tile error on primary server");
+                });
+
+                mainTileLayer.addTo(map);
+
+                incidentsLayer = L.layerGroup().addTo(map);
+                servicesLayer = L.layerGroup().addTo(map);
+                affectedAreaLayer = L.layerGroup().addTo(map);
+                userLayer = L.layerGroup().addTo(map);
+
+                map.on('click', function(e) {
+                    notifyNative('mapPress', {
+                        lat: parseFloat(e.latlng.lat.toFixed(6)),
+                        lng: parseFloat(e.latlng.lng.toFixed(6))
+                    });
+                });
+
+                const loader = document.getElementById('loading-indicator');
+                if (loader) {
+                    loader.style.opacity = '0';
+                    setTimeout(() => { loader.style.display = 'none'; }, 400);
+                }
+
+                if (pendingData) {
+                    window.updateMapData(pendingData);
+                    pendingData = null;
+                }
+            } catch (e) {
+                console.error("Map initialization failed, switching to native offline interactive canvas map:", e);
+                initFallbackMap();
+            }
+        }
+
+        // Offline / No-CDN High Performance Interactive Canvas Vector Map
+        let fallbackCanvas, fallbackCtx;
+        let fbData = null;
+        let fbCenter = { lat: 30.7268, lng: 78.4350 };
+        let fbZoom = 13;
+
+        function initFallbackMap() {
+            const container = document.getElementById('map');
+            container.innerHTML = '';
+            
+            fallbackCanvas = document.createElement('canvas');
+            fallbackCanvas.style.width = '100%';
+            fallbackCanvas.style.height = '100%';
+            fallbackCanvas.style.background = '#0f172a';
+            container.appendChild(fallbackCanvas);
+            fallbackCtx = fallbackCanvas.getContext('2d');
+
+            function resizeFb() {
+                fallbackCanvas.width = window.innerWidth;
+                fallbackCanvas.height = window.innerHeight;
+                renderFallbackMap();
+            }
+            window.addEventListener('resize', resizeFb);
+            resizeFb();
+
+            fallbackCanvas.addEventListener('click', function(e) {
+                const rect = fallbackCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                const scale = 0.00015 * Math.pow(2, 13 - fbZoom);
+                const clickLat = fbCenter.lat - (y - fallbackCanvas.height / 2) * scale;
+                const clickLng = fbCenter.lng + (x - fallbackCanvas.width / 2) * scale;
+                
+                notifyNative('mapPress', {
+                    lat: parseFloat(clickLat.toFixed(6)),
+                    lng: parseFloat(clickLng.toFixed(6))
+                });
+            });
+
+            const loader = document.getElementById('loading-indicator');
+            if (loader) {
+                loader.style.display = 'none';
+            }
+
+            if (pendingData) {
+                window.updateMapData(pendingData);
+                pendingData = null;
+            }
+        }
+
+        function renderFallbackMap() {
+            if (!fallbackCtx || !fallbackCanvas) return;
+            const w = fallbackCanvas.width;
+            const h = fallbackCanvas.height;
+            const ctx = fallbackCtx;
+
+            // Background
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, w, h);
+
+            // Grid lines (Topological terrain grid)
+            ctx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+            ctx.lineWidth = 1;
+            const gridSize = 60;
+            for (let x = 0; x < w; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+            for (let y = 0; y < h; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+
+            // River / Waterway Simulation Line (Bhagirathi / Local River)
+            ctx.strokeStyle = '#0284c7';
+            ctx.lineWidth = 14;
+            ctx.beginPath();
+            ctx.moveTo(0, h * 0.7);
+            ctx.bezierCurveTo(w * 0.3, h * 0.65, w * 0.6, h * 0.4, w, h * 0.25);
+            ctx.stroke();
+
+            // River Glow
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+            ctx.lineWidth = 26;
+            ctx.stroke();
+
+            const scale = 0.00015 * Math.pow(2, 13 - fbZoom);
+            function toScreen(lat, lng) {
+                return {
+                    x: w / 2 + (lng - fbCenter.lng) / scale,
+                    y: h / 2 - (lat - fbCenter.lat) / scale
+                };
+            }
+
+            // Affected Zone
+            if (fbData && fbData.center && fbData.radiusMeters) {
+                const centerPt = toScreen(fbData.center.lat, fbData.center.lng);
+                const rPx = (fbData.radiusMeters / 111000) / scale;
+                ctx.beginPath();
+                ctx.arc(centerPt.x, centerPt.y, rPx, 0, Math.PI * 2);
+                let col = 'rgba(22, 163, 74, 0.2)';
+                let strCol = '#16a34a';
+                if (fbData.riskColor === 'red') {
+                    col = 'rgba(220, 38, 38, 0.25)';
+                    strCol = '#dc2626';
+                } else if (fbData.riskColor === 'orange' || fbData.riskColor === 'yellow') {
+                    col = 'rgba(234, 88, 12, 0.25)';
+                    strCol = '#ea580c';
+                }
+                ctx.fillStyle = col;
+                ctx.fill();
+                ctx.strokeStyle = strCol;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([8, 6]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Emergency Services
+            if (fbData && fbData.emergencyServices && fbData.showEmergency !== false) {
+                fbData.emergencyServices.forEach(srv => {
+                    const pt = toScreen(srv.lat, srv.lng);
+                    ctx.fillStyle = '#0284c7';
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 16, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '14px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('🏥', pt.x, pt.y);
+
+                    ctx.font = 'bold 11px sans-serif';
+                    ctx.fillStyle = '#e2e8f0';
+                    ctx.fillText(srv.name, pt.x, pt.y + 24);
+                });
+            }
+
+            // Incidents
+            if (fbData && fbData.incidents && fbData.showIncidents !== false) {
+                fbData.incidents.forEach(inc => {
+                    const pt = toScreen(inc.lat, inc.lng);
+                    let color = '#dc2626';
+                    let icon = '🌊';
+                    if (inc.type === 'landslide') { color = '#dc2626'; icon = '⛰️'; }
+                    else if (inc.type === 'road') { color = '#ea580c'; icon = '🚧'; }
+                    else if (inc.type === 'tree') { color = '#f59e0b'; icon = '🌳'; }
+                    else if (inc.type === 'distress') { color = '#9333ea'; icon = '🆘'; }
+
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 18, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '14px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(icon, pt.x, pt.y);
+
+                    ctx.font = 'bold 11px sans-serif';
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.fillText(inc.title || 'Hazard', pt.x, pt.y + 26);
+                });
+            }
+
+            // User Location
+            if (fbCenter) {
+                const uPt = toScreen(fbCenter.lat, fbCenter.lng);
+                ctx.fillStyle = '#2563eb';
+                ctx.beginPath();
+                ctx.arc(uPt.x, uPt.y, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                ctx.fillStyle = 'rgba(37, 99, 235, 0.3)';
+                ctx.beginPath();
+                ctx.arc(uPt.x, uPt.y, 22, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
 
         function initRainCanvas() {
             if (rainCanvas) return;
@@ -134,7 +444,7 @@
         }
 
         function resizeCanvas() {
-            if (!rainCanvas) return;
+            if (!rainCanvas || !map) return;
             const size = map.getSize();
             rainCanvas.width = size.x;
             rainCanvas.height = size.y;
@@ -144,6 +454,7 @@
 
         function createRainDrops(intensity) {
             rainDrops = [];
+            if (!map) return;
             const size = map.getSize();
             const numDrops = Math.min(400, Math.floor((intensity / 100) * 300) + 100);
             
@@ -159,7 +470,7 @@
         }
 
         function animateRain() {
-            if (!isRaining || !rainCanvas || !rainCtx) return;
+            if (!isRaining || !rainCanvas || !rainCtx || !map) return;
             
             const size = map.getSize();
             rainCtx.clearRect(0, 0, size.x, size.y);
@@ -289,6 +600,7 @@
         }
 
         function drawAffectedArea(coords, radiusMeters, riskColor) {
+            if (!affectedAreaLayer) return;
             affectedAreaLayer.clearLayers();
             currentZoneCircle = null;
 
@@ -320,6 +632,7 @@
         }
 
         function updateUserLocation(lat, lng) {
+            if (!userLayer) return;
             userLayer.clearLayers();
             const iconHtml = `<div class="user-loc-badge"></div>`;
             const customIcon = L.divIcon({
@@ -339,6 +652,20 @@
         window.updateMapData = function(jsonString) {
             try {
                 const data = typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
+                fbData = data;
+                if (data.center) {
+                    fbCenter = { lat: data.center.lat, lng: data.center.lng };
+                    if (data.zoom) fbZoom = data.zoom;
+                }
+
+                if (fallbackCtx) {
+                    renderFallbackMap();
+                }
+
+                if (!map || !incidentsLayer) {
+                    pendingData = jsonString;
+                    return;
+                }
                 
                 if (data.center) {
                     map.setView([data.center.lat, data.center.lng], data.zoom || map.getZoom());
@@ -388,13 +715,6 @@
             }
         };
 
-        map.on('click', function(e) {
-            notifyNative('mapPress', {
-                lat: parseFloat(e.latlng.lat.toFixed(6)),
-                lng: parseFloat(e.latlng.lng.toFixed(6))
-            });
-        });
-
         window.sendDirections = function(lat, lng) {
             notifyNative('directions', {
                 lat: lat,
@@ -403,8 +723,23 @@
         };
 
         window.panTo = function(lat, lng, zoom) {
-            map.flyTo([lat, lng], zoom || 15, { duration: 1 });
+            if (map) {
+                map.flyTo([lat, lng], zoom || 15, { duration: 1 });
+            }
         };
+
+        // Initialize with robust Leaflet loader and fallback tile layers
+        function startApplication() {
+            loadLeaflet(function() {
+                initMap();
+            });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startApplication);
+        } else {
+            startApplication();
+        }
     </script>
 </body>
 </html>
