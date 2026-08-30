@@ -13,6 +13,7 @@ import com.example.flood.data.model.WeatherRisk
 import com.example.flood.data.repository.EmergencyServicesRepository
 import com.example.flood.data.repository.IncidentRepository
 import com.example.flood.data.repository.WeatherRepository
+import com.example.flood.util.NotificationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -142,6 +143,13 @@ class FloodViewModel(application: Application) : AndroidViewModel(application) {
                     catchmentRainfall = sim.rainIntensity.toDouble(),
                     lastUpdated = System.currentTimeMillis()
                 )
+                // Trigger Simulation Push Alert
+                NotificationHelper.sendRiskAlertNotification(
+                    context = getApplication(),
+                    title = "⚠️ SIMULATION ALERT: ${sim.title}",
+                    message = "Simulated extreme rainfall (${sim.rainIntensity}mm/h). Surge advisory active!",
+                    isCritical = sim.riskColor == "red"
+                )
             }
         }
     }
@@ -193,6 +201,14 @@ class FloodViewModel(application: Application) : AndroidViewModel(application) {
                     infoMessage = "Incident reported successfully!"
                 )
             }
+
+            // Dispatch community hazard push notification
+            NotificationHelper.sendIncidentReportNotification(
+                context = getApplication(),
+                typeLabel = type.uppercase(),
+                severity = severity,
+                locationNote = note.ifBlank { "Location: ($finalLat, $finalLng)" }
+            )
         }
     }
 

@@ -1,9 +1,14 @@
 package com.example.flood
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,13 +26,16 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -38,6 +46,7 @@ import com.example.flood.ui.screens.IncidentListScreen
 import com.example.flood.ui.screens.MainMapScreen
 import com.example.flood.ui.screens.WeatherDetailsScreen
 import com.example.flood.ui.theme.FloodAlertTheme
+import com.example.flood.util.NotificationHelper
 import com.example.flood.viewmodel.FloodViewModel
 import org.osmdroid.config.Configuration
 
@@ -74,10 +83,30 @@ class MainActivity : ComponentActivity() {
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid_prefs", MODE_PRIVATE))
         Configuration.getInstance().userAgentValue = packageName
         
+        // Setup Disaster & Warning Notification Channels
+        NotificationHelper.createNotificationChannels(this)
+
         enableEdgeToEdge()
 
         setContent {
             FloodAlertTheme {
+                val context = LocalContext.current
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { /* Permission granted/denied handled gracefully */ }
+
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        if (ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
                 val navController = rememberNavController()
                 val screens = listOf(Screen.Map, Screen.Incidents, Screen.Emergency, Screen.Weather)
                 val navBackStackEntry by navController.currentBackStackEntryAsState()

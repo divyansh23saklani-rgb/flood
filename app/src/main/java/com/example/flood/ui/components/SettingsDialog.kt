@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -31,10 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.flood.util.NotificationHelper
 
 @Composable
 fun SettingsDialog(
@@ -129,6 +132,26 @@ fun SettingsDialog(
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                val context = LocalContext.current
+                OutlinedButton(
+                    onClick = {
+                        NotificationHelper.sendRiskAlertNotification(
+                            context = context,
+                            title = "🚨 DISASTER ALERT TEST: Severe Flood Risk",
+                            message = "Heavy rainfall (18mm/h) predicted in Uttarkashi. River Bhagirathi surge expected within 2 hours. Prepare for evacuation.",
+                            isCritical = true
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("test_notification_button"),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0284C7))
+                ) {
+                    Icon(imageVector = Icons.Default.NotificationsActive, contentDescription = null)
+                    Text(text = "Trigger Test Notification", modifier = Modifier.padding(start = 6.dp))
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedButton(
                     onClick = {
