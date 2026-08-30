@@ -39,6 +39,7 @@ import com.example.flood.ui.screens.MainMapScreen
 import com.example.flood.ui.screens.WeatherDetailsScreen
 import com.example.flood.ui.theme.FloodAlertTheme
 import com.example.flood.viewmodel.FloodViewModel
+import org.osmdroid.config.Configuration
 
 sealed class Screen(val route: String, val title: String, val icon: @Composable () -> Unit) {
     object Map : Screen(
@@ -68,6 +69,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize OsmDroid native map engine
+        Configuration.getInstance().load(this, getSharedPreferences("osmdroid_prefs", MODE_PRIVATE))
+        Configuration.getInstance().userAgentValue = packageName
+        
         enableEdgeToEdge()
 
         setContent {

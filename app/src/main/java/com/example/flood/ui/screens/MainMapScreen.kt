@@ -56,7 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.flood.ui.components.MapView
+import com.example.flood.ui.components.OsmMapView
 import com.example.flood.ui.components.ReportIncidentSheet
 import com.example.flood.ui.components.SettingsDialog
 import com.example.flood.ui.components.SimulationBar
@@ -71,6 +71,7 @@ fun MainMapScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val weather by viewModel.weatherState.collectAsStateWithLifecycle()
+    val incidentsList by viewModel.incidents.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showReportSheet by remember { mutableStateOf(false) }
@@ -85,9 +86,25 @@ fun MainMapScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Fullscreen Leaflet WebView
-        MapView(
-            mapDataJson = viewModel.getMapJsonPayload(),
+        // High-Performance Native OpenStreetMap Engine (100% Reliable, Zero WebViews)
+        OsmMapView(
+            userLat = uiState.userLat,
+            userLng = uiState.userLng,
+            alertRadiusKm = uiState.alertRadiusKm,
+            riskColor = weather.riskLevel.colorHex.let {
+                when {
+                    it.contains("DC2626", ignoreCase = true) -> "red"
+                    it.contains("EA580C", ignoreCase = true) || it.contains("EAB308", ignoreCase = true) -> "yellow"
+                    else -> "green"
+                }
+            },
+            incidents = incidentsList,
+            emergencyServices = viewModel.emergencyServices,
+            showIncidents = uiState.showIncidents,
+            showEmergency = uiState.showEmergency,
+            showRiskZone = uiState.showRiskZone,
+            isRaining = uiState.isSimulatingRain || weather.precipitationMm > 5.0,
+            rainIntensity = uiState.selectedSimulation?.rainIntensity ?: weather.precipitationMm.toInt().coerceIn(10, 100),
             onMapClick = { lat, lng ->
                 viewModel.onMapClick(lat, lng)
             },
@@ -100,7 +117,8 @@ fun MainMapScreen(
                     val webUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng")
                     context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
                 }
-            }
+            },
+            modifier = Modifier.fillMaxSize()
         )
 
         // Top Overlay Header: Simulation playback bar and Weather Alert Card
