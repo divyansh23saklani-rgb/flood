@@ -13,18 +13,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Emergency
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -34,8 +34,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -43,12 +41,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -57,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.flood.ui.components.OsmMapView
+import com.example.flood.ui.components.OsmTileMode
 import com.example.flood.ui.components.ReportIncidentSheet
 import com.example.flood.ui.components.SettingsDialog
 import com.example.flood.ui.components.SimulationBar
@@ -77,6 +76,11 @@ fun MainMapScreen(
     var showReportSheet by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showLayersMenu by remember { mutableStateOf(false) }
+
+    var tileMode by remember { mutableStateOf(OsmTileMode.STANDARD) }
+    var zoomInTrigger by remember { mutableLongStateOf(0L) }
+    var zoomOutTrigger by remember { mutableLongStateOf(0L) }
+    var recenterTrigger by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(uiState.infoMessage) {
         uiState.infoMessage?.let { msg ->
@@ -103,6 +107,10 @@ fun MainMapScreen(
             showIncidents = uiState.showIncidents,
             showEmergency = uiState.showEmergency,
             showRiskZone = uiState.showRiskZone,
+            tileMode = tileMode,
+            zoomInTrigger = zoomInTrigger,
+            zoomOutTrigger = zoomOutTrigger,
+            recenterTrigger = recenterTrigger,
             isRaining = uiState.isSimulatingRain || weather.precipitationMm > 5.0,
             rainIntensity = uiState.selectedSimulation?.rainIntensity ?: weather.precipitationMm.toInt().coerceIn(10, 100),
             onMapClick = { lat, lng ->
@@ -141,6 +149,220 @@ fun MainMapScreen(
                 alertRadiusKm = uiState.alertRadiusKm,
                 isSimulationActive = uiState.selectedSimulation != null
             )
+        }
+
+        // Single Unified Floating Control Toolbar (Right-side, Vertically Centered with Zero Collisions)
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF0F172A).copy(alpha = 0.94f),
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp)
+            ) {
+                // 1. Layer & Style Toggle
+                IconButton(
+                    onClick = { showLayersMenu = !showLayersMenu },
+                    modifier = Modifier.size(42.dp).testTag("layer_toggle_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = "Map Layers & Style",
+                        tint = if (showLayersMenu) Color(0xFF38BDF8) else Color.White
+                    )
+                }
+
+                // 2. Recenter GPS
+                IconButton(
+                    onClick = {
+                        viewModel.setUserLocation(30.7268, 78.4350)
+                        recenterTrigger = System.currentTimeMillis()
+                    },
+                    modifier = Modifier.size(42.dp).testTag("recenter_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = "Recenter on Location",
+                        tint = Color(0xFF10B981)
+                    )
+                }
+
+                // Divider
+                Box(
+                    modifier = Modifier
+                        .width(28.dp)
+                        .height(1.dp)
+                        .background(Color(0xFF334155))
+                )
+
+                // 3. Zoom In (+)
+                IconButton(
+                    onClick = { zoomInTrigger = System.currentTimeMillis() },
+                    modifier = Modifier.size(42.dp).testTag("zoom_in_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Zoom In",
+                        tint = Color.White
+                    )
+                }
+
+                // 4. Zoom Out (-)
+                IconButton(
+                    onClick = { zoomOutTrigger = System.currentTimeMillis() },
+                    modifier = Modifier.size(42.dp).testTag("zoom_out_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "Zoom Out",
+                        tint = Color.White
+                    )
+                }
+
+                // Divider
+                Box(
+                    modifier = Modifier
+                        .width(28.dp)
+                        .height(1.dp)
+                        .background(Color(0xFF334155))
+                )
+
+                // 5. Settings Dialog
+                IconButton(
+                    onClick = { showSettingsDialog = true },
+                    modifier = Modifier.size(42.dp).testTag("map_settings_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = Color(0xFF94A3B8)
+                    )
+                }
+            }
+        }
+
+        // Unified Map Layers & Map Style Selector Dialog
+        if (showLayersMenu) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 68.dp)
+                    .width(260.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Map Customization",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color.White
+                        )
+                        IconButton(
+                            onClick = { showLayersMenu = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "BASE MAP TYPE",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8),
+                        letterSpacing = 1.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    OsmTileMode.values().forEach { mode ->
+                        val isSelected = tileMode == mode
+                        Surface(
+                            onClick = { tileMode = mode },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF0284C7).copy(alpha = 0.3f) else Color(0xFF1E293B),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = when (mode) {
+                                        OsmTileMode.STANDARD -> "🗺️  "
+                                        OsmTileMode.TOPO -> "🏔️  "
+                                        OsmTileMode.HUMANITARIAN -> "🏕️  "
+                                    },
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = mode.label,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color(0xFF38BDF8) else Color(0xFFCBD5E1),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (isSelected) {
+                                    Text(
+                                        text = "✓",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF38BDF8),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "DISASTER OVERLAYS",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8),
+                        letterSpacing = 1.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    LayerToggleRow(
+                        label = "⚠️ Incidents & Hazards",
+                        checked = uiState.showIncidents,
+                        onToggle = { viewModel.toggleShowIncidents() }
+                    )
+                    LayerToggleRow(
+                        label = "🏥 Emergency Centers",
+                        checked = uiState.showEmergency,
+                        onToggle = { viewModel.toggleShowEmergency() }
+                    )
+                    LayerToggleRow(
+                        label = "⭕ Danger Risk Buffer",
+                        checked = uiState.showRiskZone,
+                        onToggle = { viewModel.toggleShowRiskZone() }
+                    )
+                }
+            }
         }
 
         // Pinned Location Action Card (appears when user clicks map)
@@ -214,84 +436,6 @@ fun MainMapScreen(
             }
         }
 
-        // Side Controls (Recenter, Layers, Settings)
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Layer Toggles Menu Button
-            SmallFloatingActionButton(
-                onClick = { showLayersMenu = !showLayersMenu },
-                containerColor = Color.White,
-                contentColor = Color(0xFF0F172A),
-                modifier = Modifier.testTag("layer_toggle_button")
-            ) {
-                Icon(imageVector = Icons.Default.Layers, contentDescription = "Toggle Layers")
-            }
-
-            // Recenter GPS Button
-            SmallFloatingActionButton(
-                onClick = {
-                    viewModel.setUserLocation(30.7268, 78.4350)
-                },
-                containerColor = Color.White,
-                contentColor = Color(0xFF0284C7),
-                modifier = Modifier.testTag("recenter_button")
-            ) {
-                Icon(imageVector = Icons.Default.MyLocation, contentDescription = "Recenter on Uttarkashi")
-            }
-
-            // Settings Button
-            SmallFloatingActionButton(
-                onClick = { showSettingsDialog = true },
-                containerColor = Color.White,
-                contentColor = Color(0xFF475569),
-                modifier = Modifier.testTag("map_settings_button")
-            ) {
-                Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings")
-            }
-        }
-
-        // Layer toggles popup card
-        if (showLayersMenu) {
-            Card(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 70.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Map Layers",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = Color(0xFF0F172A),
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
-                    LayerToggleRow(
-                        label = "Incidents (⚠️)",
-                        checked = uiState.showIncidents,
-                        onToggle = { viewModel.toggleShowIncidents() }
-                    )
-                    LayerToggleRow(
-                        label = "Emergency Services (🏥)",
-                        checked = uiState.showEmergency,
-                        onToggle = { viewModel.toggleShowEmergency() }
-                    )
-                    LayerToggleRow(
-                        label = "Alert Radius Buffer (⭕)",
-                        checked = uiState.showRiskZone,
-                        onToggle = { viewModel.toggleShowRiskZone() }
-                    )
-                }
-            }
-        }
-
         // Primary FAB: Report Disaster / Incident
         FloatingActionButton(
             onClick = { showReportSheet = true },
@@ -360,10 +504,10 @@ private fun LayerToggleRow(
     Surface(
         onClick = onToggle,
         shape = RoundedCornerShape(8.dp),
-        color = if (checked) Color(0xFFE0F2FE) else Color(0xFFF1F5F9),
+        color = if (checked) Color(0xFF0284C7).copy(alpha = 0.25f) else Color(0xFF1E293B),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
+            .padding(vertical = 2.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -374,14 +518,14 @@ private fun LayerToggleRow(
                 text = label,
                 fontSize = 12.sp,
                 fontWeight = if (checked) FontWeight.Bold else FontWeight.Normal,
-                color = if (checked) Color(0xFF0284C7) else Color(0xFF475569)
+                color = if (checked) Color(0xFF38BDF8) else Color(0xFF94A3B8)
             )
             Text(
                 text = if (checked) "ON" else "OFF",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (checked) Color(0xFF0284C7) else Color(0xFF94A3B8),
-                modifier = Modifier.padding(start = 12.dp)
+                color = if (checked) Color(0xFF38BDF8) else Color(0xFF64748B),
+                modifier = Modifier.padding(start = 8.dp)
             )
         }
     }

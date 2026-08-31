@@ -25,28 +25,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,7 +47,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,7 +57,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.flood.data.model.EmergencyService
 import com.example.flood.data.model.Incident
-import com.example.flood.data.model.IncidentType
 import com.example.flood.data.model.ServiceType
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
@@ -77,6 +67,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
+import java.io.File
 import kotlin.random.Random
 
 sealed class OsmSelectedItem {
@@ -85,9 +76,9 @@ sealed class OsmSelectedItem {
 }
 
 enum class OsmTileMode(val label: String) {
-    STANDARD("Standard OSM"),
-    TOPO("Topographic"),
-    HUMANITARIAN("Humanitarian / Relief")
+    STANDARD("Standard Map"),
+    TOPO("Topographic & Terrain"),
+    HUMANITARIAN("Relief & Infrastructure")
 }
 
 @Composable
@@ -101,6 +92,10 @@ fun OsmMapView(
     showIncidents: Boolean,
     showEmergency: Boolean,
     showRiskZone: Boolean,
+    tileMode: OsmTileMode = OsmTileMode.STANDARD,
+    zoomInTrigger: Long = 0L,
+    zoomOutTrigger: Long = 0L,
+    recenterTrigger: Long = 0L,
     isRaining: Boolean,
     rainIntensity: Int,
     onMapClick: (lat: Double, lng: Double) -> Unit,
@@ -110,10 +105,13 @@ fun OsmMapView(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var selectedItem by remember { mutableStateOf<OsmSelectedItem?>(null) }
-    var currentTileMode by remember { mutableStateOf(OsmTileMode.STANDARD) }
 
-    // Remember native MapView instance
+    // Initialize osmdroid configuration using internal app cache for maximum portability across all devices
     val mapView = remember {
+        val basePath = File(context.cacheDir, "osmdroid")
+        val tileCache = File(basePath, "tiles")
+        Configuration.getInstance().osmdroidBasePath = basePath
+        Configuration.getInstance().osmdroidTileCache = tileCache
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid_prefs", Context.MODE_PRIVATE))
         Configuration.getInstance().userAgentValue = context.packageName
 
@@ -126,7 +124,7 @@ fun OsmMapView(
         }
     }
 
-    // Manage MapView Lifecycle (onResume / onPause)
+    // Manage MapView Lifecycle (onResume / onPause / onDetach)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -143,9 +141,9 @@ fun OsmMapView(
         }
     }
 
-    // Switch Tile Source
-    LaunchedEffect(currentTileMode) {
-        when (currentTileMode) {
+    // Switch Tile Source when mode changes
+    LaunchedEffect(tileMode) {
+        when (tileMode) {
             OsmTileMode.STANDARD -> mapView.setTileSource(TileSourceFactory.MAPNIK)
             OsmTileMode.TOPO -> mapView.setTileSource(TileSourceFactory.OpenTopo)
             OsmTileMode.HUMANITARIAN -> mapView.setTileSource(TileSourceFactory.HIKEBIKEMAP)
@@ -153,7 +151,28 @@ fun OsmMapView(
         mapView.invalidate()
     }
 
-    // Recenter when user moves
+    // Handle Zoom In Action
+    LaunchedEffect(zoomInTrigger) {
+        if (zoomInTrigger > 0L) {
+            mapView.controller.zoomIn()
+        }
+    }
+
+    // Handle Zoom Out Action
+    LaunchedEffect(zoomOutTrigger) {
+        if (zoomOutTrigger > 0L) {
+            mapView.controller.zoomOut()
+        }
+    }
+
+    // Handle Recenter Action
+    LaunchedEffect(recenterTrigger) {
+        if (recenterTrigger > 0L) {
+            mapView.controller.animateTo(GeoPoint(userLat, userLng), 14.5, 600L)
+        }
+    }
+
+    // Recenter when user location changes
     LaunchedEffect(userLat, userLng) {
         mapView.controller.animateTo(GeoPoint(userLat, userLng))
     }
@@ -294,91 +313,7 @@ fun OsmMapView(
             }
         }
 
-        // Top-Right Floating Controls (Layer Selector, My Location, Zoom In/Out)
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 130.dp, end = 14.dp),
-            horizontalAlignment = Alignment.End
-        ) {
-            // Layer Switcher
-            Surface(
-                onClick = {
-                    currentTileMode = when (currentTileMode) {
-                        OsmTileMode.STANDARD -> OsmTileMode.TOPO
-                        OsmTileMode.TOPO -> OsmTileMode.HUMANITARIAN
-                        OsmTileMode.HUMANITARIAN -> OsmTileMode.STANDARD
-                    }
-                },
-                shape = CircleShape,
-                color = Color(0xFF0F172A).copy(alpha = 0.92f),
-                shadowElevation = 6.dp,
-                modifier = Modifier.size(46.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Layers,
-                        contentDescription = "Map Layer",
-                        tint = Color(0xFF38BDF8),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Re-center on User Location
-            Surface(
-                onClick = {
-                    mapView.controller.animateTo(GeoPoint(userLat, userLng), 14.5, 600L)
-                },
-                shape = CircleShape,
-                color = Color(0xFF0F172A).copy(alpha = 0.92f),
-                shadowElevation = 6.dp,
-                modifier = Modifier.size(46.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.MyLocation,
-                        contentDescription = "My Location",
-                        tint = Color(0xFF10B981),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Zoom Group (+ / -)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF0F172A).copy(alpha = 0.92f),
-                shadowElevation = 6.dp
-            ) {
-                Column {
-                    IconButton(
-                        onClick = { mapView.controller.zoomIn() },
-                        modifier = Modifier.size(42.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Zoom In", tint = Color.White)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .width(42.dp)
-                            .height(1.dp)
-                            .background(Color(0xFF334155))
-                    )
-                    IconButton(
-                        onClick = { mapView.controller.zoomOut() },
-                        modifier = Modifier.size(42.dp)
-                    ) {
-                        Icon(Icons.Default.Remove, contentDescription = "Zoom Out", tint = Color.White)
-                    }
-                }
-            }
-        }
-
-        // Bottom Selected Marker Card Inspector
+        // Bottom Selected Marker Card Inspector (Clear of any floating buttons)
         selectedItem?.let { item ->
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -603,3 +538,4 @@ private fun createEmergencyIcon(context: Context, service: EmergencyService): Dr
 
     return BitmapDrawable(context.resources, bitmap)
 }
+
