@@ -1,0 +1,238 @@
+package com.example.flood.service
+
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.IBinder
+import android.util.Log
+import com.example.flood.data.local.AppDatabase
+import com.example.flood.data.model.IncidentType
+import com.example.flood.data.remote.CloudIncidentSyncManager
+import com.example.flood.util.NotificationHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+
+class DisasterSyncService : Service() {
+
+    private val serviceJob = Job()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    private var streamJob: Job? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        NotificationHelper.createNotificationChannels(this)
+        try {
+            startForeground(
+                NotificationHelper.NOTIF_ID_SERVICE,
+                NotificationHelper.getSyncServiceNotification(this)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start foreground service: ${e.message}")
+        }
+        startLiveStreamListener()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (streamJob == null || streamJob?.isActive != true) {
+            startLiveStreamListener()
+        }
+        return START_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun startLiveStreamListener() {
+        streamJob?.cancel()
+        streamJob = serviceScope.launch {
+            val myDeviceId = CloudIncidentSyncManager.getDeviceId(this@DisasterSyncService)
+            val db = AppDatabase.getDatabase(this@DisasterSyncService)
+
+            while (isActive) {
+                var connection: HttpURLConnection? = null
+                try {
+                    // Connect to continuous Server-Sent Events / streaming json endpoint for sub-second real-time delivery
+                    val streamUrl = URL("https://ntfy.sh/jaldrishti_disaster_sync_v1/json")
+                    connection = (streamUrl.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 15000
+                        readTimeout = 0 // Infinite read timeout for continuous stream
+                        doInput = true
+                    }
+
+                    if (connection.responseCode in 200..299) {
+                        val inputStream = connection.inputStream
+                        val reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
+
+                        while (isActive) {
+                            val line = reader.readLine() ?: break
+                            val trimmed = line.trim()
+                            if (trimmed.isEmpty() || !trimmed.startsWith("{")) continue
+
+                            try {
+                                val eventJson = JSONObject(trimmed)
+                                val messageBody = if (eventJson.has("message")) {
+                                    eventJson.optString("message")
+                                } else {
+                                    trimmed
+                                }
+                                val event = CloudIncidentSyncManager.parseMessage(messageBody, myDeviceId)
+                                    ?: CloudIncidentSyncManager.parseMessage(trimmed, myDeviceId)
+
+                                when (event) {
+                                    is CloudIncidentSyncManager.RemoteEvent.VerifiedAlert -> {
+                                        val existing = db.incidentDao().getIncidentByCreatedAt(event.incidentCreatedAt)
+                                        if (existing == null) {
+                                            db.incidentDao().insertIncident(
+                                                com.example.flood.data.model.Incident(
+                                                    type = event.type,
+                                                    note = event.note,
+                                                    lat = event.lat,
+                                                    lng = event.lng,
+                                                    createdAt = event.incidentCreatedAt,
+                                                    severity = event.severity,
+                                                    userReported = true,
+                                                    score = event.upvotes,
+                                                    upvotes = event.upvotes,
+                                                    downvotes = 0,
+                                                    status = "OPEN",
+                                                    userVote = 0,
+                                                    isAlertBroadcasted = true
+                                                )
+                                            )
+                                        } else {
+                                            db.incidentDao().updateVotesByCreatedAt(
+                                                createdAt = event.incidentCreatedAt,
+                                                upvotes = event.upvotes.coerceAtLeast(existing.upvotes),
+                                                downvotes = existing.downvotes,
+                                                score = event.upvotes.coerceAtLeast(existing.upvotes) - existing.downvotes
+                                            )
+                                            db.incidentDao().updateAlertBroadcastedByCreatedAt(event.incidentCreatedAt, true)
+                                        }
+
+                                        val typeLabel = IncidentType.fromString(event.type).label
+                                        NotificationHelper.sendVerifiedHazardAlertNotification(
+                                            context = this@DisasterSyncService,
+                                            typeLabel = typeLabel,
+                                            severity = event.severity,
+                                            locationNote = event.note.ifBlank { "Location: (${String.format(java.util.Locale.US, "%.4f", event.lat)}, ${String.format(java.util.Locale.US, "%.4f", event.lng)})" },
+                                            verifiedCount = event.upvotes
+                                        )
+                                    }
+                                    is CloudIncidentSyncManager.RemoteEvent.NewIncident -> {
+                                        val inc = event.incident
+                                        val exists = db.incidentDao().checkExists(inc.createdAt)
+                                        if (exists == 0) {
+                                            db.incidentDao().insertIncident(inc)
+                                            if (inc.upvotes >= 3) {
+                                                NotificationHelper.sendVerifiedHazardAlertNotification(
+                                                    context = this@DisasterSyncService,
+                                                    typeLabel = inc.incidentType.label,
+                                                    severity = inc.severity,
+                                                    locationNote = inc.note.ifBlank { "Location: (${String.format(java.util.Locale.US, "%.4f", inc.lat)}, ${String.format(java.util.Locale.US, "%.4f", inc.lng)})" },
+                                                    verifiedCount = inc.upvotes
+                                                )
+                                            }
+                                        }
+                                    }
+                                    is CloudIncidentSyncManager.RemoteEvent.NewComment -> {
+                                        val comment = event.comment
+                                        val exists = db.commentDao().checkExists(
+                                            createdAt = comment.createdAt,
+                                            text = comment.text
+                                        )
+                                        if (exists == 0) {
+                                            val localIncident = if (comment.incidentCreatedAt != 0L) {
+                                                db.incidentDao().getIncidentByCreatedAt(comment.incidentCreatedAt)
+                                            } else null
+                                            val finalComment = if (localIncident != null && localIncident.id != comment.incidentId) {
+                                                comment.copy(incidentId = localIncident.id)
+                                            } else {
+                                                comment
+                                            }
+                                            db.commentDao().insertComment(finalComment)
+                                            NotificationHelper.sendCommentNotification(
+                                                context = this@DisasterSyncService,
+                                                author = comment.authorName,
+                                                commentText = comment.text,
+                                                hazardType = "Community Hazard Report"
+                                            )
+                                        }
+                                    }
+                                    is CloudIncidentSyncManager.RemoteEvent.VoteUpdate -> {
+                                        val existing = db.incidentDao().getIncidentByCreatedAt(event.incidentCreatedAt)
+                                        db.incidentDao().updateVotesByCreatedAt(
+                                            createdAt = event.incidentCreatedAt,
+                                            upvotes = event.upvotes,
+                                            downvotes = event.downvotes,
+                                            score = event.score
+                                        )
+                                        if (existing != null && event.upvotes >= 3 && !existing.isAlertBroadcasted) {
+                                            db.incidentDao().updateAlertBroadcastedByCreatedAt(event.incidentCreatedAt, true)
+                                            NotificationHelper.sendVerifiedHazardAlertNotification(
+                                                context = this@DisasterSyncService,
+                                                typeLabel = existing.incidentType.label,
+                                                severity = existing.severity,
+                                                locationNote = existing.note.ifBlank { "Location: (${String.format(java.util.Locale.US, "%.4f", existing.lat)}, ${String.format(java.util.Locale.US, "%.4f", existing.lng)})" },
+                                                verifiedCount = event.upvotes
+                                            )
+                                        }
+                                    }
+                                    is CloudIncidentSyncManager.RemoteEvent.StatusUpdate -> {
+                                        db.incidentDao().updateStatusByCreatedAt(
+                                            createdAt = event.incidentCreatedAt,
+                                            status = event.status
+                                        )
+                                    }
+                                    null -> { /* non-actionable or self message */ }
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Error handling incoming stream line: ${e.message}")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Stream connection closed or error: ${e.message}, reconnecting...")
+                } finally {
+                    try {
+                        connection?.disconnect()
+                    } catch (e: Exception) { /* ignore */ }
+                }
+
+                // If connection drops, wait briefly and auto-reconnect
+                delay(3000)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceJob.cancel()
+    }
+
+    companion object {
+        private const val TAG = "DisasterSyncService"
+
+        fun start(context: Context) {
+            val intent = Intent(context, DisasterSyncService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    context.startForegroundService(intent)
+                } catch (e: Exception) {
+                    context.startService(intent)
+                }
+            } else {
+                context.startService(intent)
+            }
+        }
+    }
+}

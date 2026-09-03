@@ -344,16 +344,25 @@ fun OsmMapView(
                                         fontSize = 16.sp,
                                         color = Color.White
                                     )
-                                    Text(
-                                        text = "Severity: ${inc.severity.uppercase()}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = when (inc.severity.uppercase()) {
-                                            "HIGH" -> Color(0xFFEF4444)
-                                            "MEDIUM" -> Color(0xFFF59E0B)
-                                            else -> Color(0xFF10B981)
-                                        }
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "Severity: ${inc.severity.uppercase()}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = when (inc.severity.uppercase()) {
+                                                "HIGH" -> Color(0xFFEF4444)
+                                                "MEDIUM" -> Color(0xFFF59E0B)
+                                                else -> Color(0xFF10B981)
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (inc.isVerified) "• 🛡️ 3+ Verified" else "• ⏳ ${inc.upvotes}/3 Votes",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (inc.isVerified) Color(0xFF4ADE80) else Color(0xFFFBBF24)
+                                        )
+                                    }
                                 }
                                 IconButton(onClick = { selectedItem = null }) {
                                     Text("✕", color = Color(0xFF94A3B8), fontSize = 18.sp)

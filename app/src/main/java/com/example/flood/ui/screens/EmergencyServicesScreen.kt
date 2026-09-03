@@ -21,11 +21,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Directions
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -34,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -57,6 +60,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.flood.data.model.EmergencyService
 import com.example.flood.data.model.ServiceType
+import com.example.flood.ui.components.SosBeaconBottomSheet
+import com.example.flood.ui.components.SosBeaconCard
 import com.example.flood.viewmodel.FloodViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,6 +74,15 @@ fun EmergencyServicesScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val allServices = viewModel.emergencyServices
 
+    val isSosActive by viewModel.isSosBeaconActive.collectAsStateWithLifecycle()
+    val isSosSoundEnabled by viewModel.isSosSoundEnabled.collectAsStateWithLifecycle()
+    val isSosFlashlightEnabled by viewModel.isSosFlashlightEnabled.collectAsStateWithLifecycle()
+    val isSosScreenStrobeEnabled by viewModel.isSosScreenStrobeEnabled.collectAsStateWithLifecycle()
+    val sosAudioMode by viewModel.sosAudioMode.collectAsStateWithLifecycle()
+    val sosStrobeMode by viewModel.sosStrobeMode.collectAsStateWithLifecycle()
+    val isSosPulseHigh by viewModel.isSosPulseHigh.collectAsStateWithLifecycle()
+
+    var showBeaconModal by remember { mutableStateOf(false) }
     var selectedType by remember { mutableStateOf("ALL") }
 
     val sortedServices = remember(allServices, uiState.userLat, uiState.userLng, selectedType) {
@@ -86,14 +100,26 @@ fun EmergencyServicesScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Emergency Services & Shelters",
+                            text = "Emergency Services & SAR Beacon",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
+                            fontSize = 17.sp
                         )
                         Text(
-                            text = "Sorted by proximity from monitoring center",
-                            fontSize = 12.sp,
+                            text = "Helplines, Relief Centers & Acoustic Distress Beacon",
+                            fontSize = 11.sp,
                             color = Color(0xFF64748B)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { showBeaconModal = true },
+                        modifier = Modifier.testTag("open_beacon_settings_action")
+                    ) {
+                        Icon(
+                            imageVector = if (isSosActive) Icons.Default.Warning else Icons.Default.FlashOn,
+                            contentDescription = "SOS Beacon",
+                            tint = if (isSosActive) Color(0xFFDC2626) else Color(0xFF0284C7)
                         )
                     }
                 },
@@ -111,120 +137,186 @@ fun EmergencyServicesScreen(
                 .padding(innerPadding)
                 .background(Color(0xFFF8FAFC))
         ) {
-            // SOS Quick Banner
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .testTag("sos_emergency_banner"),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFDC2626)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(imageVector = Icons.Default.Shield, contentDescription = null, tint = Color.White)
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(text = "National Disaster Helpline: 112 / 1070", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFDC2626))
-                            Text(text = "State Disaster Response Force (SDRF)", fontSize = 11.sp, color = Color(0xFF64748B))
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:112"))
-                            context.startActivity(intent)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = "Call 112", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            // Service Type Filter Row
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
-                    FilterChip(
-                        selected = selectedType == "ALL",
-                        onClick = { selectedType = "ALL" },
-                        label = { Text("All (${allServices.size})") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF0284C7),
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-
-                item {
-                    FilterChip(
-                        selected = selectedType == "hospital",
-                        onClick = { selectedType = "hospital" },
-                        label = { Text("🏥 Hospitals") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF16A34A),
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-
-                item {
-                    FilterChip(
-                        selected = selectedType == "shelter",
-                        onClick = { selectedType = "shelter" },
-                        label = { Text("🏕️ Relief Shelters") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFD97706),
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-
-                item {
-                    FilterChip(
-                        selected = selectedType == "police",
-                        onClick = { selectedType = "police" },
-                        label = { Text("👮 Police & Rescue") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF0284C7),
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-            }
-
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                item { Spacer(modifier = Modifier.height(4.dp)) }
+
+                // SOS Beacon Hero Card
+                item {
+                    SosBeaconCard(
+                        isActive = isSosActive,
+                        isSoundEnabled = isSosSoundEnabled,
+                        isFlashlightEnabled = isSosFlashlightEnabled,
+                        isScreenStrobeEnabled = isSosScreenStrobeEnabled,
+                        audioMode = sosAudioMode,
+                        strobeMode = sosStrobeMode,
+                        isPulseHigh = isSosPulseHigh,
+                        onToggleBeacon = { viewModel.toggleSosBeacon() },
+                        onOpenFullSettings = { showBeaconModal = true }
+                    )
+                }
+
+                // National & State Disaster Helplines Card
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("sos_emergency_banner"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECACA))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFDC2626)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Shield, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "National Disaster Emergency (112)",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color(0xFFDC2626)
+                                        )
+                                        Text(
+                                            text = "Direct line to NDRF, Police & Ambulance",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:112"))
+                                        context.startActivity(intent)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(36.dp).testTag("emergency_dial_112_button")
+                                ) {
+                                    Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(text = "Call 112", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:1070"))
+                                        context.startActivity(intent)
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(34.dp)
+                                ) {
+                                    Text("SDRF: 1070", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFDC2626))
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:108"))
+                                        context.startActivity(intent)
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(34.dp)
+                                ) {
+                                    Text("Ambulance: 108", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF16A34A))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Filter Chips Row
+                item {
+                    Column {
+                        Text(
+                            text = "LOCAL RELIEF & RESCUE FACILITIES",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF64748B),
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = selectedType == "ALL",
+                                    onClick = { selectedType = "ALL" },
+                                    label = { Text("All (${allServices.size})") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF0284C7),
+                                        selectedLabelColor = Color.White
+                                    )
+                                )
+                            }
+
+                            item {
+                                FilterChip(
+                                    selected = selectedType == "hospital",
+                                    onClick = { selectedType = "hospital" },
+                                    label = { Text("🏥 Hospitals & Trauma") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF16A34A),
+                                        selectedLabelColor = Color.White
+                                    )
+                                )
+                            }
+
+                            item {
+                                FilterChip(
+                                    selected = selectedType == "shelter",
+                                    onClick = { selectedType = "shelter" },
+                                    label = { Text("🏕️ Relief Shelters & Camps") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFD97706),
+                                        selectedLabelColor = Color.White
+                                    )
+                                )
+                            }
+
+                            item {
+                                FilterChip(
+                                    selected = selectedType == "police",
+                                    onClick = { selectedType = "police" },
+                                    label = { Text("👮 Police & SAR Units") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF0284C7),
+                                        selectedLabelColor = Color.White
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Emergency Services Items
                 items(sortedServices, key = { it.id }) { service ->
                     val distance = service.distanceTo(uiState.userLat, uiState.userLng)
                     ServiceItemCard(
@@ -250,9 +342,29 @@ fun EmergencyServicesScreen(
                         }
                     )
                 }
-                item { Spacer(modifier = Modifier.height(80.dp)) }
+
+                item { Spacer(modifier = Modifier.height(40.dp)) }
             }
         }
+    }
+
+    if (showBeaconModal) {
+        SosBeaconBottomSheet(
+            isActive = isSosActive,
+            isSoundEnabled = isSosSoundEnabled,
+            isFlashlightEnabled = isSosFlashlightEnabled,
+            isScreenStrobeEnabled = isSosScreenStrobeEnabled,
+            audioMode = sosAudioMode,
+            strobeMode = sosStrobeMode,
+            isPulseHigh = isSosPulseHigh,
+            onToggleBeacon = { viewModel.toggleSosBeacon() },
+            onToggleSound = { viewModel.setSosSoundEnabled(it) },
+            onToggleFlashlight = { viewModel.setSosFlashlightEnabled(it) },
+            onToggleScreenStrobe = { viewModel.setSosScreenStrobeEnabled(it) },
+            onSelectAudioMode = { viewModel.setSosAudioMode(it) },
+            onSelectStrobeMode = { viewModel.setSosStrobeMode(it) },
+            onDismiss = { showBeaconModal = false }
+        )
     }
 }
 
@@ -275,7 +387,8 @@ private fun ServiceItemCard(
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
         modifier = modifier
             .fillMaxWidth()
             .testTag("service_card_${service.id}")

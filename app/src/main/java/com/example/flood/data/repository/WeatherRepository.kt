@@ -1,5 +1,8 @@
 package com.example.flood.data.repository
 
+import com.example.flood.data.local.SeedData
+import com.example.flood.data.model.DisasterSimulation
+import com.example.flood.data.model.EmergencyService
 import com.example.flood.data.model.RiskLevel
 import com.example.flood.data.model.WeatherRisk
 import java.util.Calendar
@@ -8,6 +11,10 @@ import kotlin.math.max
 import kotlin.math.min
 
 class WeatherRepository {
+
+    fun getEmergencyServices(): List<EmergencyService> = SeedData.EMERGENCY_SERVICES
+
+    fun getSimulations(): List<DisasterSimulation> = SeedData.SIMULATIONS
 
     fun calculatePrecipitationNext6h(lat: Double, lng: Double): Double {
         // Faithful to original src/api/weather.ts

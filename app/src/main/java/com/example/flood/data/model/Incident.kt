@@ -5,6 +5,7 @@ import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
 
 enum class IncidentType(val label: String, val emoji: String, val colorHex: String) {
+    ACCIDENT("Accident / Crash", "💥", "#DC2626"),
     FLOOD("Flood", "🌊", "#DC2626"),
     LANDSLIDE("Landslide", "⛰️", "#EA580C"),
     TREE("Tree Fall", "🌳", "#16A34A"),
@@ -14,8 +15,13 @@ enum class IncidentType(val label: String, val emoji: String, val colorHex: Stri
 
     companion object {
         fun fromString(value: String): IncidentType {
-            return entries.find { it.name.equals(value, ignoreCase = true) || it.label.equals(value, ignoreCase = true) }
-                ?: FLOOD
+            val normalized = value.trim().lowercase()
+            return entries.find {
+                it.name.equals(normalized, ignoreCase = true) ||
+                it.label.equals(normalized, ignoreCase = true) ||
+                normalized.contains("accident") ||
+                normalized.contains("crash")
+            } ?: entries.find { normalized.contains(it.name, ignoreCase = true) } ?: ACCIDENT
         }
     }
 }
@@ -32,8 +38,22 @@ data class Incident(
     val createdAt: Long = System.currentTimeMillis(),
     val severity: String = "HIGH", // HIGH, MEDIUM, LOW
     val userReported: Boolean = true,
-    val score: Int = 0
+    val score: Int = 0,
+    val upvotes: Int = 0,
+    val downvotes: Int = 0,
+    val status: String = "OPEN", // "OPEN", "RESOLVED"
+    val userVote: Int = 0, // 1: upvoted, -1: downvoted, 0: none
+    val isAlertBroadcasted: Boolean = false // Set to true once 3+ verifications have triggered SMS and push broadcast
 ) {
     val incidentType: IncidentType
         get() = IncidentType.fromString(type)
+
+    val isOpen: Boolean
+        get() = status.equals("OPEN", ignoreCase = true)
+
+    val isVerified: Boolean
+        get() = upvotes >= 3
+
+    val verificationsRemaining: Int
+        get() = (3 - upvotes).coerceAtLeast(0)
 }

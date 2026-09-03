@@ -22,12 +22,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Directions
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +49,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,8 +70,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.flood.data.model.Comment
 import com.example.flood.data.model.Incident
 import com.example.flood.data.model.IncidentType
+import com.example.flood.ui.components.IncidentCommentsSheet
 import com.example.flood.ui.components.ReportIncidentSheet
 import com.example.flood.viewmodel.FloodViewModel
 import java.text.SimpleDateFormat
@@ -76,16 +89,26 @@ fun IncidentListScreen(
 ) {
     val context = LocalContext.current
     val incidents by viewModel.incidents.collectAsStateWithLifecycle()
+    val allComments by viewModel.comments.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    var selectedFilter by remember { mutableStateOf("ALL") }
+    var selectedStatusFilter by remember { mutableStateOf("OPEN") } // OPEN, ALL, RESOLVED
+    var selectedTypeFilter by remember { mutableStateOf("ALL") }
     var showReportSheet by remember { mutableStateOf(false) }
+    var selectedIncidentForComments by remember { mutableStateOf<Incident?>(null) }
 
-    val filteredIncidents = remember(incidents, selectedFilter) {
-        if (selectedFilter == "ALL") {
-            incidents
-        } else {
-            incidents.filter { it.type.equals(selectedFilter, ignoreCase = true) }
+    val openCount = remember(incidents) { incidents.count { it.isOpen } }
+    val resolvedCount = remember(incidents) { incidents.count { !it.isOpen } }
+
+    val filteredIncidents = remember(incidents, selectedStatusFilter, selectedTypeFilter) {
+        incidents.filter { inc ->
+            val statusMatch = when (selectedStatusFilter) {
+                "OPEN" -> inc.isOpen
+                "RESOLVED" -> !inc.isOpen
+                else -> true
+            }
+            val typeMatch = if (selectedTypeFilter == "ALL") true else inc.type.equals(selectedTypeFilter, ignoreCase = true)
+            statusMatch && typeMatch
         }
     }
 
@@ -95,14 +118,35 @@ fun IncidentListScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Reported Disasters & Hazards",
+                            text = "Community Hazard Network",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp
                         )
-                        Text(
-                            text = "${filteredIncidents.size} active incidents in monitoring range",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF16A34A))
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "$openCount Open Hazards • Live SMS Alert Mesh",
+                                fontSize = 12.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.triggerSync() },
+                        modifier = Modifier.testTag("sync_incidents_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync Community Hazards",
+                            tint = Color(0xFF0284C7)
                         )
                     }
                 },
@@ -126,7 +170,7 @@ fun IncidentListScreen(
                 ) {
                     Icon(imageVector = Icons.Default.Add, contentDescription = null)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Report", fontWeight = FontWeight.Bold)
+                    Text(text = "Report Hazard", fontWeight = FontWeight.Bold)
                 }
             }
         },
@@ -138,21 +182,96 @@ fun IncidentListScreen(
                 .padding(innerPadding)
                 .background(Color(0xFFF8FAFC))
         ) {
-            // Category Filter Chips
+            // 3+ Verification Policy Banner
+            Surface(
+                color = Color(0xFFEFF6FF),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "3+ Verification Rule: Hazards confirmed by 3+ responders automatically push SMS & App sirens to all area citizens.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF1E40AF),
+                        lineHeight = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Status Filters Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChip(
+                    selected = selectedStatusFilter == "OPEN",
+                    onClick = { selectedStatusFilter = "OPEN" },
+                    label = { Text("🚨 Open ($openCount)") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFFDC2626),
+                        selectedLabelColor = Color.White,
+                        containerColor = Color.White
+                    ),
+                    modifier = Modifier.testTag("filter_open_hazards")
+                )
+
+                FilterChip(
+                    selected = selectedStatusFilter == "ALL",
+                    onClick = { selectedStatusFilter = "ALL" },
+                    label = { Text("All (${incidents.size})") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF0284C7),
+                        selectedLabelColor = Color.White,
+                        containerColor = Color.White
+                    ),
+                    modifier = Modifier.testTag("filter_all_hazards")
+                )
+
+                FilterChip(
+                    selected = selectedStatusFilter == "RESOLVED",
+                    onClick = { selectedStatusFilter = "RESOLVED" },
+                    label = { Text("Resolved ($resolvedCount)") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF64748B),
+                        selectedLabelColor = Color.White,
+                        containerColor = Color.White
+                    ),
+                    modifier = Modifier.testTag("filter_resolved_hazards")
+                )
+            }
+
+            // Category Type Filter Chips
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 item {
                     FilterChip(
-                        selected = selectedFilter == "ALL",
-                        onClick = { selectedFilter = "ALL" },
-                        label = { Text("All (${incidents.size})") },
+                        selected = selectedTypeFilter == "ALL",
+                        onClick = { selectedTypeFilter = "ALL" },
+                        label = { Text("All Types") },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF0284C7),
-                            selectedLabelColor = Color.White
+                            selectedContainerColor = Color(0xFF334155),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color(0xFFF1F5F9)
                         )
                     )
                 }
@@ -160,12 +279,13 @@ fun IncidentListScreen(
                 items(IncidentType.entries) { type ->
                     val count = incidents.count { it.type.equals(type.name, ignoreCase = true) }
                     FilterChip(
-                        selected = selectedFilter.equals(type.name, ignoreCase = true),
-                        onClick = { selectedFilter = type.name },
+                        selected = selectedTypeFilter.equals(type.name, ignoreCase = true),
+                        onClick = { selectedTypeFilter = type.name },
                         label = { Text("${type.emoji} ${type.label} ($count)") },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF0284C7),
-                            selectedLabelColor = Color.White
+                            selectedLabelColor = Color.White,
+                            containerColor = Color(0xFFF1F5F9)
                         )
                     )
                 }
@@ -187,10 +307,15 @@ fun IncidentListScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "No incidents reported in this category",
+                            text = if (selectedStatusFilter == "VERIFIED") "No 3+ verified hazards currently" else if (selectedStatusFilter == "OPEN") "No open hazards in this category 🎉" else "No incidents found",
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF64748B),
                             fontSize = 15.sp
+                        )
+                        Text(
+                            text = "Community safety is clear or filter is restricted.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF94A3B8)
                         )
                     }
                 }
@@ -198,12 +323,21 @@ fun IncidentListScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filteredIncidents, key = { it.id }) { incident ->
+                        val commentsCount = allComments.count { it.incidentId == incident.id || (incident.createdAt != 0L && it.incidentCreatedAt == incident.createdAt) }
                         IncidentItemCard(
                             incident = incident,
+                            commentsCount = commentsCount,
+                            onUpvote = { viewModel.upvoteIncident(incident.id) },
+                            onDownvote = { viewModel.downvoteIncident(incident.id) },
+                            onToggleStatus = {
+                                val nextStatus = if (incident.isOpen) "RESOLVED" else "OPEN"
+                                viewModel.updateIncidentStatus(incident.id, nextStatus)
+                            },
+                            onOpenComments = { selectedIncidentForComments = incident },
                             onDelete = { viewModel.deleteIncident(incident.id) },
                             onNavigate = {
                                 val uri = Uri.parse("geo:${incident.lat},${incident.lng}?q=${incident.lat},${incident.lng}(${incident.type})")
@@ -217,7 +351,7 @@ fun IncidentListScreen(
                             }
                         )
                     }
-                    item { Spacer(modifier = Modifier.height(80.dp)) }
+                    item { Spacer(modifier = Modifier.height(88.dp)) }
                 }
             }
         }
@@ -234,11 +368,24 @@ fun IncidentListScreen(
             userLocation = Pair(uiState.userLat, uiState.userLng)
         )
     }
+
+    selectedIncidentForComments?.let { incident ->
+        IncidentCommentsSheet(
+            incident = incident,
+            viewModel = viewModel,
+            onDismiss = { selectedIncidentForComments = null }
+        )
+    }
 }
 
 @Composable
 private fun IncidentItemCard(
     incident: Incident,
+    commentsCount: Int,
+    onUpvote: () -> Unit,
+    onDownvote: () -> Unit,
+    onToggleStatus: () -> Unit,
+    onOpenComments: () -> Unit,
     onDelete: () -> Unit,
     onNavigate: () -> Unit,
     modifier: Modifier = Modifier
@@ -254,7 +401,7 @@ private fun IncidentItemCard(
     }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
@@ -262,6 +409,7 @@ private fun IncidentItemCard(
             .testTag("incident_card_${incident.id}")
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            // Header Row: Emoji, Label, Status, and Severity
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -270,7 +418,7 @@ private fun IncidentItemCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(Color(0xFFF1F5F9)),
                         contentAlignment = Alignment.Center
@@ -281,12 +429,30 @@ private fun IncidentItemCard(
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Column {
-                        Text(
-                            text = incidentType.label,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color(0xFF0F172A)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = incidentType.label,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            // Status Pill
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (incident.isOpen) Color(0xFFFEE2E2) else Color(0xFFDCFCE7),
+                                modifier = Modifier.clickable { onToggleStatus() }
+                            ) {
+                                Text(
+                                    text = if (incident.isOpen) "🚨 OPEN" else "✅ RESOLVED",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (incident.isOpen) Color(0xFFDC2626) else Color(0xFF16A34A),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Schedule,
@@ -297,7 +463,7 @@ private fun IncidentItemCard(
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = formattedTime,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 color = Color(0xFF64748B)
                             )
                         }
@@ -318,18 +484,75 @@ private fun IncidentItemCard(
                 }
             }
 
+            // 3+ Community Verification Status Pill / Banner
+            Spacer(modifier = Modifier.height(8.dp))
+            if (incident.isVerified) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFDCFCE7),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VerifiedUser,
+                            contentDescription = null,
+                            tint = Color(0xFF16A34A),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "🛡️ 3+ VERIFIED (${incident.upvotes} votes) • PUSHED VIA SMS & APP",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D)
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFEF3C7),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDE68A)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = Color(0xFFD97706),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "⏳ ${incident.upvotes}/3 Verifications (Needs ${incident.verificationsRemaining} more for SMS & App push)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFB45309)
+                        )
+                    }
+                }
+            }
+
             if (incident.note.isNotBlank()) {
                 Text(
                     text = incident.note,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     color = Color(0xFF334155),
-                    modifier = Modifier.padding(top = 10.dp)
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
+            // Location & Coordinates Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -344,7 +567,7 @@ private fun IncidentItemCard(
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "${String.format("%.4f", incident.lat)}, ${String.format("%.4f", incident.lng)}",
+                        text = "${String.format(Locale.US, "%.4f", incident.lat)}, ${String.format(Locale.US, "%.4f", incident.lng)}",
                         fontSize = 12.sp,
                         color = Color(0xFF64748B)
                     )
@@ -353,13 +576,13 @@ private fun IncidentItemCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Delete report",
                             tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
@@ -367,15 +590,118 @@ private fun IncidentItemCard(
                         onClick = onNavigate,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(32.dp)
+                        modifier = Modifier.height(28.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Directions,
                             contentDescription = null,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(12.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = "Navigate", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(text = "Navigate", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Voting, Verification & Comments Action Bar
+            Surface(
+                color = Color(0xFFF8FAFC),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Upvote & Downvote Controls
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Upvote Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (incident.userVote == 1) Color(0xFFE0F2FE) else Color(0xFFF1F5F9),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onUpvote() }
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                                .testTag("upvote_button_${incident.id}")
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (incident.userVote == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                                    contentDescription = "Upvote / Verify",
+                                    tint = if (incident.userVote == 1) Color(0xFF0284C7) else Color(0xFF475569),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (incident.userVote == 1) "Verified (${incident.upvotes})" else "Verify (${incident.upvotes})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (incident.userVote == 1) Color(0xFF0284C7) else Color(0xFF334155)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Downvote Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (incident.userVote == -1) Color(0xFFFEE2E2) else Color.Transparent,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onDownvote() }
+                                .padding(horizontal = 6.dp, vertical = 5.dp)
+                                .testTag("downvote_button_${incident.id}")
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (incident.userVote == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                                    contentDescription = "Downvote / Dispute",
+                                    tint = if (incident.userVote == -1) Color(0xFFDC2626) else Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "${incident.downvotes}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (incident.userVote == -1) Color(0xFFDC2626) else Color(0xFF64748B)
+                                )
+                            }
+                        }
+                    }
+
+                    // Comments Button
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFE2E8F0),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onOpenComments() }
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                            .testTag("open_comments_button_${incident.id}")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.ChatBubbleOutline,
+                                contentDescription = "Comments",
+                                tint = Color(0xFF334155),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (commentsCount > 0) "$commentsCount Comments" else "Comment",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF334155)
+                            )
+                        }
                     }
                 }
             }

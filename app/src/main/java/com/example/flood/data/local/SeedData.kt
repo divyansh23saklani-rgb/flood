@@ -8,6 +8,45 @@ object SeedData {
     val INITIAL_INCIDENTS = listOf(
         Incident(
             id = 1,
+            type = "flood",
+            note = "Low lying market waterlogged up to 3 feet - officially confirmed by responders",
+            lat = 30.7922,
+            lng = 78.4621,
+            createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 5,
+            severity = "HIGH",
+            userReported = false,
+            upvotes = 4,
+            score = 4,
+            isAlertBroadcasted = true
+        ),
+        Incident(
+            id = 2,
+            type = "road",
+            note = "Landslide blocking NH-34 bend. (Needs 1 more verification to push alert)",
+            lat = 30.8075,
+            lng = 78.5672,
+            createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 8,
+            severity = "HIGH",
+            userReported = false,
+            upvotes = 2,
+            score = 2,
+            isAlertBroadcasted = false
+        ),
+        Incident(
+            id = 3,
+            type = "distress",
+            note = "Bridge approach washed out; urgent evacuation assistance requested",
+            lat = 30.7535,
+            lng = 78.7350,
+            createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 6,
+            severity = "HIGH",
+            userReported = false,
+            upvotes = 3,
+            score = 3,
+            isAlertBroadcasted = true
+        ),
+        Incident(
+            id = 4,
             type = "yellow",
             note = "High river discharge reported along Bhagirathi bank",
             lat = 30.7298,
@@ -15,40 +54,9 @@ object SeedData {
             createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 10,
             severity = "MEDIUM",
             userReported = false,
-            score = 1
-        ),
-        Incident(
-            id = 2,
-            type = "road",
-            note = "Road blocked due to landslide on NH-34 bend",
-            lat = 30.8075,
-            lng = 78.5672,
-            createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 8,
-            severity = "HIGH",
-            userReported = false,
-            score = 0
-        ),
-        Incident(
-            id = 3,
-            type = "distress",
-            note = "Bridge approach washed out; urgent evacuation assistance required",
-            lat = 30.7535,
-            lng = 78.7350,
-            createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 6,
-            severity = "HIGH",
-            userReported = false,
-            score = 0
-        ),
-        Incident(
-            id = 4,
-            type = "flood",
-            note = "Low lying market waterlogged up to 3 feet",
-            lat = 30.7922,
-            lng = 78.4621,
-            createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 5,
-            severity = "HIGH",
-            userReported = false,
-            score = 2
+            upvotes = 1,
+            score = 1,
+            isAlertBroadcasted = false
         ),
         Incident(
             id = 5,
@@ -59,7 +67,9 @@ object SeedData {
             createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 3,
             severity = "MEDIUM",
             userReported = false,
-            score = 0
+            upvotes = 0,
+            score = 0,
+            isAlertBroadcasted = false
         ),
         Incident(
             id = 6,
@@ -70,7 +80,9 @@ object SeedData {
             createdAt = System.currentTimeMillis() - 1000 * 60 * 60 * 2,
             severity = "HIGH",
             userReported = false,
-            score = 1
+            upvotes = 3,
+            score = 3,
+            isAlertBroadcasted = true
         )
     )
 
@@ -226,10 +238,10 @@ object SeedData {
             rainIntensity = 95,
             riskColor = "red",
             simulatedIncidents = listOf(
-                Incident(id = 101, type = "flood", note = "Bhagirathi river overflowed embankments", lat = 30.7280, lng = 78.4340, severity = "HIGH"),
-                Incident(id = 102, type = "landslide", note = "Massive rockfall cut off NH-34 at Bhatwari", lat = 30.8120, lng = 78.5710, severity = "HIGH"),
-                Incident(id = 103, type = "distress", note = "Over 150 pilgrims stranded near Dharali", lat = 30.8920, lng = 79.0680, severity = "HIGH"),
-                Incident(id = 104, type = "road", note = "Main bridge approaches washed away", lat = 30.7350, lng = 78.4420, severity = "HIGH")
+                Incident(id = 101, type = "flood", note = "Bhagirathi river overflowed embankments", lat = 30.7280, lng = 78.4340, severity = "HIGH", upvotes = 5, isAlertBroadcasted = true),
+                Incident(id = 102, type = "landslide", note = "Massive rockfall cut off NH-34 at Bhatwari", lat = 30.8120, lng = 78.5710, severity = "HIGH", upvotes = 4, isAlertBroadcasted = true),
+                Incident(id = 103, type = "distress", note = "Over 150 pilgrims stranded near Dharali", lat = 30.8920, lng = 79.0680, severity = "HIGH", upvotes = 6, isAlertBroadcasted = true),
+                Incident(id = 104, type = "road", note = "Main bridge approaches washed away", lat = 30.7350, lng = 78.4420, severity = "HIGH", upvotes = 3, isAlertBroadcasted = true)
             )
         ),
         DisasterSimulation(
@@ -240,9 +252,9 @@ object SeedData {
             rainIntensity = 75,
             riskColor = "orange",
             simulatedIncidents = listOf(
-                Incident(id = 201, type = "flood", note = "Rapid water level rise (+4.2m) at Dam basin", lat = 30.7930, lng = 78.4610, severity = "HIGH"),
-                Incident(id = 202, type = "road", note = "Debris accumulation at tunnel inlet", lat = 30.7850, lng = 78.4550, severity = "HIGH"),
-                Incident(id = 203, type = "tree", note = "Uprooted trees choking culverts", lat = 30.7220, lng = 78.4310, severity = "MEDIUM")
+                Incident(id = 201, type = "flood", note = "Rapid water level rise (+4.2m) at Dam basin", lat = 30.7930, lng = 78.4610, severity = "HIGH", upvotes = 4, isAlertBroadcasted = true),
+                Incident(id = 202, type = "road", note = "Debris accumulation at tunnel inlet", lat = 30.7850, lng = 78.4550, severity = "HIGH", upvotes = 3, isAlertBroadcasted = true),
+                Incident(id = 203, type = "tree", note = "Uprooted trees choking culverts", lat = 30.7220, lng = 78.4310, severity = "MEDIUM", upvotes = 1, isAlertBroadcasted = false)
             )
         )
     )

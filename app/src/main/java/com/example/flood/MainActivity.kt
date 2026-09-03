@@ -10,6 +10,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -59,16 +67,16 @@ sealed class Screen(val route: String, val title: String, val icon: @Composable 
     object Incidents : Screen(
         route = "incidents",
         title = "Hazards",
-        icon = { Icon(imageVector = Icons.Default.Warning, contentDescription = "Incidents", modifier = Modifier.size(22.dp)) }
+        icon = { Icon(imageVector = Icons.Default.Warning, contentDescription = "Hazards", modifier = Modifier.size(22.dp)) }
     )
     object Emergency : Screen(
         route = "emergency",
-        title = "Shelters",
+        title = "Emergency",
         icon = { Icon(imageVector = Icons.Default.LocalHospital, contentDescription = "Emergency", modifier = Modifier.size(22.dp)) }
     )
     object Weather : Screen(
         route = "weather",
-        title = "Forecast",
+        title = "Weather",
         icon = { Icon(imageVector = Icons.Default.Cloud, contentDescription = "Weather", modifier = Modifier.size(22.dp)) }
     )
 }
@@ -86,24 +94,28 @@ class MainActivity : ComponentActivity() {
         // Setup Disaster & Warning Notification Channels
         NotificationHelper.createNotificationChannels(this)
 
+        // Start background real-time disaster sync service for immediate push notifications
+        com.example.flood.service.DisasterSyncService.start(this)
+
         enableEdgeToEdge()
 
         setContent {
             FloodAlertTheme {
                 val context = LocalContext.current
-                val permissionLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.RequestPermission()
-                ) { /* Permission granted/denied handled gracefully */ }
+                // Request Permissions for Notifications
+                val multiplePermissionsLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestMultiplePermissions()
+                ) { /* Handled gracefully in background */ }
 
                 LaunchedEffect(Unit) {
+                    val permissionsToRequest = mutableListOf<String>()
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        if (ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.POST_NOTIFICATIONS
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
                         }
+                    }
+                    if (permissionsToRequest.isNotEmpty()) {
+                        multiplePermissionsLauncher.launch(permissionsToRequest.toTypedArray())
                     }
                 }
 
@@ -112,77 +124,79 @@ class MainActivity : ComponentActivity() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = Color.White,
-                            tonalElevation = 8.dp
-                        ) {
-                            screens.forEach { screen ->
-                                val selected = currentRoute == screen.route
-                                NavigationBarItem(
-                                    selected = selected,
-                                    onClick = {
-                                        if (currentRoute != screen.route) {
-                                            navController.navigate(screen.route) {
-                                                popUpTo(navController.graph.findStartDestination().id) {
-                                                    saveState = true
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        bottomBar = {
+                            NavigationBar(
+                                containerColor = Color.White,
+                                tonalElevation = 8.dp
+                            ) {
+                                screens.forEach { screen ->
+                                    val selected = currentRoute == screen.route
+                                    NavigationBarItem(
+                                        selected = selected,
+                                        onClick = {
+                                            if (currentRoute != screen.route) {
+                                                navController.navigate(screen.route) {
+                                                    popUpTo(navController.graph.findStartDestination().id) {
+                                                        saveState = true
+                                                    }
+                                                    launchSingleTop = true
+                                                    restoreState = true
                                                 }
-                                                launchSingleTop = true
-                                                restoreState = true
                                             }
-                                        }
-                                    },
-                                    icon = screen.icon,
-                                    label = {
-                                        Text(
-                                            text = screen.title,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = Color(0xFF0284C7),
-                                        selectedTextColor = Color(0xFF0284C7),
-                                        indicatorColor = Color(0xFFE0F2FE),
-                                        unselectedIconColor = Color(0xFF64748B),
-                                        unselectedTextColor = Color(0xFF64748B)
-                                    ),
-                                    modifier = Modifier.testTag("nav_tab_${screen.route}")
-                                )
+                                        },
+                                        icon = screen.icon,
+                                        label = {
+                                            Text(
+                                                text = screen.title,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        colors = NavigationBarItemDefaults.colors(
+                                            selectedIconColor = Color(0xFF0284C7),
+                                            selectedTextColor = Color(0xFF0284C7),
+                                            indicatorColor = Color(0xFFE0F2FE),
+                                            unselectedIconColor = Color(0xFF64748B),
+                                            unselectedTextColor = Color(0xFF64748B)
+                                        ),
+                                        modifier = Modifier.testTag("nav_tab_${screen.route}")
+                                    )
+                                }
                             }
                         }
-                    }
-                ) { innerPadding ->
-                    NavHost(
-                        navController = navController,
-                        startDestination = Screen.Map.route,
-                        modifier = Modifier.padding(innerPadding)
-                    ) {
-                        composable(Screen.Map.route) {
-                            MainMapScreen(
-                                viewModel = viewModel
-                            )
-                        }
-                        composable(Screen.Incidents.route) {
-                            IncidentListScreen(
-                                viewModel = viewModel,
-                                onNavigateToMapTarget = { lat, lng ->
-                                    viewModel.setUserLocation(lat, lng)
-                                    navController.navigate(Screen.Map.route)
-                                }
-                            )
-                        }
-                        composable(Screen.Emergency.route) {
-                            EmergencyServicesScreen(
-                                viewModel = viewModel
-                            )
-                        }
-                        composable(Screen.Weather.route) {
-                            WeatherDetailsScreen(
-                                viewModel = viewModel
-                            )
+                    ) { innerPadding ->
+                        NavHost(
+                            navController = navController,
+                            startDestination = Screen.Map.route,
+                            modifier = Modifier.padding(innerPadding)
+                        ) {
+                            composable(Screen.Map.route) {
+                                MainMapScreen(
+                                    viewModel = viewModel
+                                )
+                            }
+                            composable(Screen.Incidents.route) {
+                                IncidentListScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToMapTarget = { lat, lng ->
+                                        viewModel.setUserLocation(lat, lng)
+                                        navController.navigate(Screen.Map.route)
+                                    }
+                                )
+                            }
+                            composable(Screen.Emergency.route) {
+                                EmergencyServicesScreen(
+                                    viewModel = viewModel
+                                )
+                            }
+                            composable(Screen.Weather.route) {
+                                WeatherDetailsScreen(
+                                    viewModel = viewModel
+                                )
+                            }
                         }
                     }
                 }

@@ -13,12 +13,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,6 +62,24 @@ fun ReportIncidentSheet(
 
     val activeLocation = pickedLocation ?: userLocation
 
+    val darkInputTextStyle = TextStyle(
+        color = Color(0xFF0F172A),
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium
+    )
+
+    val customTextFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color(0xFF0F172A),
+        unfocusedTextColor = Color(0xFF0F172A),
+        focusedPlaceholderColor = Color(0xFF94A3B8),
+        unfocusedPlaceholderColor = Color(0xFF94A3B8),
+        focusedBorderColor = Color(0xFF0284C7),
+        unfocusedBorderColor = Color(0xFFCBD5E1),
+        focusedContainerColor = Color(0xFFF8FAFC),
+        unfocusedContainerColor = Color(0xFFF8FAFC),
+        cursorColor = Color(0xFF0284C7)
+    )
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -79,7 +98,7 @@ fun ReportIncidentSheet(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Report Incident",
+                    text = "Report Hazard to Disaster Grid",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF0F172A)
@@ -99,50 +118,41 @@ fun ReportIncidentSheet(
 
             Text(
                 text = "Select Incident Category:",
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF334155),
-                modifier = Modifier.padding(top = 10.dp, bottom = 8.dp)
+                modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
             )
 
-            // Incident Types 2-row grid
+            // Incident Types Grid
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val types = IncidentType.entries
-                val row1 = types.take(3)
-                val row2 = types.drop(3)
+                val rows = types.chunked(3)
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    row1.forEach { type ->
-                        val isSelected = selectedType == type
-                        IncidentTypeCard(
-                            type = type,
-                            isSelected = isSelected,
-                            onSelect = { selectedType = type },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    row2.forEach { type ->
-                        val isSelected = selectedType == type
-                        IncidentTypeCard(
-                            type = type,
-                            isSelected = isSelected,
-                            onSelect = { selectedType = type },
-                            modifier = Modifier.weight(1f)
-                        )
+                rows.forEach { rowTypes ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowTypes.forEach { type ->
+                            val isSelected = selectedType == type
+                            IncidentTypeCard(
+                                type = type,
+                                isSelected = isSelected,
+                                onSelect = { selectedType = type },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (rowTypes.size < 3) {
+                            for (i in 0 until (3 - rowTypes.size)) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Location card
             Surface(
@@ -162,18 +172,19 @@ fun ReportIncidentSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Coords: ${String.format("%.4f", activeLocation.first)}, ${String.format("%.4f", activeLocation.second)} (${if (pickedLocation != null) "Pinned on Map" else "Current GPS"})",
+                        text = "Coords: ${String.format(java.util.Locale.US, "%.4f", activeLocation.first)}, ${String.format(java.util.Locale.US, "%.4f", activeLocation.second)} (${if (pickedLocation != null) "Pinned on Map" else "Current GPS"})",
                         fontSize = 12.sp,
-                        color = Color(0xFF475569)
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF334155)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = "Severity Level:",
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF334155),
                 modifier = Modifier.padding(bottom = 6.dp)
@@ -204,11 +215,11 @@ fun ReportIncidentSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = "Details / Ground Situation (Optional):",
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF334155),
                 modifier = Modifier.padding(bottom = 6.dp)
@@ -217,20 +228,63 @@ fun ReportIncidentSheet(
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it },
-                placeholder = { Text("Describe road blockage, trapped people, water depth...") },
+                placeholder = {
+                    Text(
+                        text = "Describe road blockage, trapped people, water depth...",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 13.sp
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(95.dp)
+                    .height(85.dp)
                     .testTag("incident_note_input"),
+                textStyle = darkInputTextStyle,
                 shape = RoundedCornerShape(10.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF0284C7),
-                    unfocusedBorderColor = Color(0xFFCBD5E1)
-                ),
+                colors = customTextFieldColors,
                 maxLines = 4
             )
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 3+ Community Verification Notice Card
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFEFF6FF),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF93C5FD)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VerifiedUser,
+                            contentDescription = null,
+                            tint = Color(0xFF0284C7),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "3+ Verification Broadcast Protection",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF1E3A8A)
+                            )
+                            Text(
+                                text = "To prevent false alarms and panic, emergency siren notifications and high-priority alarms are automatically triggered once 3+ citizens verify this hazard.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF1E40AF),
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = {
@@ -246,7 +300,7 @@ fun ReportIncidentSheet(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Submit Disaster Alert", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(text = "Submit Hazard Report", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
         }

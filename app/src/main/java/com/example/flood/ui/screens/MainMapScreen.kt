@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,10 +18,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
@@ -47,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -59,23 +63,35 @@ import com.example.flood.ui.components.OsmTileMode
 import com.example.flood.ui.components.ReportIncidentSheet
 import com.example.flood.ui.components.SettingsDialog
 import com.example.flood.ui.components.SimulationBar
+import com.example.flood.ui.components.SosBeaconBottomSheet
 import com.example.flood.ui.components.WeatherAlertBanner
 import com.example.flood.viewmodel.FloodViewModel
 
 @Composable
 fun MainMapScreen(
     viewModel: FloodViewModel,
+    onOpenLogin: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val weather by viewModel.weatherState.collectAsStateWithLifecycle()
     val incidentsList by viewModel.incidents.collectAsStateWithLifecycle()
+
+    val isSosActive by viewModel.isSosBeaconActive.collectAsStateWithLifecycle()
+    val isSosSoundEnabled by viewModel.isSosSoundEnabled.collectAsStateWithLifecycle()
+    val isSosFlashlightEnabled by viewModel.isSosFlashlightEnabled.collectAsStateWithLifecycle()
+    val isSosScreenStrobeEnabled by viewModel.isSosScreenStrobeEnabled.collectAsStateWithLifecycle()
+    val sosAudioMode by viewModel.sosAudioMode.collectAsStateWithLifecycle()
+    val sosStrobeMode by viewModel.sosStrobeMode.collectAsStateWithLifecycle()
+    val isSosPulseHigh by viewModel.isSosPulseHigh.collectAsStateWithLifecycle()
+
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showReportSheet by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showLayersMenu by remember { mutableStateOf(false) }
+    var showSosBeaconSheet by remember { mutableStateOf(false) }
 
     var tileMode by remember { mutableStateOf(OsmTileMode.STANDARD) }
     var zoomInTrigger by remember { mutableLongStateOf(0L) }
@@ -129,7 +145,7 @@ fun MainMapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Top Overlay Header: Simulation playback bar and Weather Alert Card
+        // Top Overlay Header: Simulation playback bar, Weather Alert Card & Active SOS Banner
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -149,6 +165,62 @@ fun MainMapScreen(
                 alertRadiusKm = uiState.alertRadiusKm,
                 isSimulationActive = uiState.selectedSimulation != null
             )
+
+            // Active SOS Distress Beacon Pill Banner
+            if (isSosActive) {
+                Surface(
+                    color = if (isSosPulseHigh) Color(0xFFDC2626) else Color(0xFF991B1B),
+                    shape = RoundedCornerShape(12.dp),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { showSosBeaconSheet = true }
+                        .testTag("active_sos_top_banner")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "🚨 SOS BEACON BROADCASTING",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "${sosAudioMode.title} (${sosAudioMode.frequencyLabel}) • ${sosStrobeMode.title}",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFFFEE2E2)
+                                )
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "STOP",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .background(Color(0xFF450A0A), RoundedCornerShape(6.dp))
+                                    .clickable { viewModel.stopSosBeacon() }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // Single Unified Floating Control Toolbar (Right-side, Vertically Centered with Zero Collisions)
@@ -231,7 +303,27 @@ fun MainMapScreen(
                         .background(Color(0xFF334155))
                 )
 
-                // 5. Settings Dialog
+                // 5. SOS Sound Beacon & Flashlight Strobe
+                IconButton(
+                    onClick = { showSosBeaconSheet = true },
+                    modifier = Modifier.size(42.dp).testTag("map_sos_beacon_button")
+                ) {
+                    Icon(
+                        imageVector = if (isSosActive) Icons.Default.Warning else Icons.Default.FlashOn,
+                        contentDescription = "SOS Sound Beacon & Flashlight Strobe",
+                        tint = if (isSosActive) Color(0xFFEF4444) else Color(0xFFFBBF24)
+                    )
+                }
+
+                // Divider
+                Box(
+                    modifier = Modifier
+                        .width(28.dp)
+                        .height(1.dp)
+                        .background(Color(0xFF334155))
+                )
+
+                // 6. Settings Dialog
                 IconButton(
                     onClick = { showSettingsDialog = true },
                     modifier = Modifier.size(42.dp).testTag("map_settings_button")
@@ -275,52 +367,43 @@ fun MainMapScreen(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(16.dp)
+                                tint = Color(0xFF94A3B8)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "BASE MAP TYPE",
+                        text = "MAP BASE LAYER",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF38BDF8),
                         letterSpacing = 1.sp
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                    OsmTileMode.values().forEach { mode ->
+                    OsmTileMode.entries.forEach { mode ->
                         val isSelected = tileMode == mode
                         Surface(
                             onClick = { tileMode = mode },
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) Color(0xFF0284C7).copy(alpha = 0.3f) else Color(0xFF1E293B),
+                            color = if (isSelected) Color(0xFF0284C7).copy(alpha = 0.25f) else Color(0xFF1E293B),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 2.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = when (mode) {
-                                        OsmTileMode.STANDARD -> "🗺️  "
-                                        OsmTileMode.TOPO -> "🏔️  "
-                                        OsmTileMode.HUMANITARIAN -> "🏕️  "
-                                    },
-                                    fontSize = 14.sp
-                                )
                                 Text(
                                     text = mode.label,
                                     fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) Color(0xFF38BDF8) else Color(0xFFCBD5E1),
-                                    modifier = Modifier.weight(1f)
+                                    color = if (isSelected) Color(0xFF38BDF8) else Color(0xFFCBD5E1)
                                 )
                                 if (isSelected) {
                                     Text(
@@ -491,6 +574,26 @@ fun MainMapScreen(
                 viewModel.resetToDefaults()
             },
             onDismiss = { showSettingsDialog = false }
+        )
+    }
+
+    // SOS Beacon Bottom Sheet Controls
+    if (showSosBeaconSheet) {
+        SosBeaconBottomSheet(
+            isActive = isSosActive,
+            isSoundEnabled = isSosSoundEnabled,
+            isFlashlightEnabled = isSosFlashlightEnabled,
+            isScreenStrobeEnabled = isSosScreenStrobeEnabled,
+            audioMode = sosAudioMode,
+            strobeMode = sosStrobeMode,
+            isPulseHigh = isSosPulseHigh,
+            onToggleBeacon = { viewModel.toggleSosBeacon() },
+            onToggleSound = { viewModel.setSosSoundEnabled(it) },
+            onToggleFlashlight = { viewModel.setSosFlashlightEnabled(it) },
+            onToggleScreenStrobe = { viewModel.setSosScreenStrobeEnabled(it) },
+            onSelectAudioMode = { viewModel.setSosAudioMode(it) },
+            onSelectStrobeMode = { viewModel.setSosStrobeMode(it) },
+            onDismiss = { showSosBeaconSheet = false }
         )
     }
 }

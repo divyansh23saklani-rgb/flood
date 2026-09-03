@@ -9,12 +9,12 @@ plugins {
 
 android {
     namespace = "com.example.flood"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.aistudio.floodalert.zkpqm"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -35,10 +35,12 @@ android {
 
     buildTypes {
         debug {
-            // Uses standard debug signingConfig (or custom if debug.keystore file is present)
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -20,6 +20,9 @@ interface IncidentDao {
     @Query("SELECT COUNT(*) FROM incidents")
     suspend fun getIncidentCount(): Int
 
+    @Query("SELECT COUNT(*) FROM incidents WHERE createdAt = :createdAt")
+    suspend fun checkExists(createdAt: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertIncident(incident: Incident): Long
 
@@ -31,6 +34,30 @@ interface IncidentDao {
 
     @Delete
     suspend fun deleteIncident(incident: Incident)
+
+    @Query("SELECT * FROM incidents WHERE id = :id LIMIT 1")
+    suspend fun getIncidentById(id: Long): Incident?
+
+    @Query("SELECT * FROM incidents WHERE createdAt = :createdAt LIMIT 1")
+    suspend fun getIncidentByCreatedAt(createdAt: Long): Incident?
+
+    @Query("UPDATE incidents SET upvotes = :upvotes, downvotes = :downvotes, score = :score, userVote = :userVote WHERE id = :id")
+    suspend fun updateVotes(id: Long, upvotes: Int, downvotes: Int, score: Int, userVote: Int)
+
+    @Query("UPDATE incidents SET upvotes = :upvotes, downvotes = :downvotes, score = :score WHERE createdAt = :createdAt")
+    suspend fun updateVotesByCreatedAt(createdAt: Long, upvotes: Int, downvotes: Int, score: Int)
+
+    @Query("UPDATE incidents SET isAlertBroadcasted = :broadcasted WHERE id = :id")
+    suspend fun updateAlertBroadcasted(id: Long, broadcasted: Boolean)
+
+    @Query("UPDATE incidents SET isAlertBroadcasted = :broadcasted WHERE createdAt = :createdAt")
+    suspend fun updateAlertBroadcastedByCreatedAt(createdAt: Long, broadcasted: Boolean)
+
+    @Query("UPDATE incidents SET status = :status WHERE id = :id")
+    suspend fun updateStatus(id: Long, status: String)
+
+    @Query("UPDATE incidents SET status = :status WHERE createdAt = :createdAt")
+    suspend fun updateStatusByCreatedAt(createdAt: Long, status: String)
 
     @Query("DELETE FROM incidents WHERE id = :id")
     suspend fun deleteById(id: Long)
